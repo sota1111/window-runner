@@ -8,7 +8,10 @@ import {
   selectableStages as coreSelectableStages,
   nextHighestCleared,
   INTRO_FRAMES,
+  INTRO_EXTERIOR_FRAMES,
   isIntroActive,
+  introPhase,
+  boardingProgress,
   generatePlatforms,
   isOnSolid,
   stepVelocity,
@@ -263,27 +266,42 @@ export function createGame(canvas, ui = {}) {
   function drawBackground(stage) {
     ctx.fillStyle = stage.sky;
     ctx.fillRect(0, 0, WIDTH, HEIGHT);
-    // Parallax layers: far shapes scroll slower than near ones.
-    const layers = [
-      { speed: 0.3, y: 70, size: 46, color: shade(stage.accent, -0.15), gap: 150 },
-      { speed: 0.6, y: 110, size: 34, color: stage.accent, gap: 110 },
-    ];
-    for (const l of layers) {
-      const off = (state.bgOffset * l.speed) % l.gap;
-      ctx.fillStyle = l.color;
-      for (let x = -l.gap; x < WIDTH + l.gap; x += l.gap) {
-        const px = x - off;
-        if (stage.id === 'space') {
-          ctx.fillRect(px + 10, l.y - 10, 3, 3);
-          ctx.fillRect(px + 60, l.y + 20, 2, 2);
-        } else if (stage.id === 'airplane') {
-          cloud(px, l.y, l.size);
-        } else if (stage.id === 'shinkansen') {
-          ctx.fillRect(px, l.y + l.size / 2, l.gap * 0.7, 3); // speed lines
-        } else {
-          ctx.fillRect(px, l.y - l.size, l.size * 0.5, l.size); // buildings/poles
-        }
-      }
+    if (stage.id === 'space') {
+      drawStars();
+      drawOrbitingPlanets(stage);
+      drawSpeedLines('#7ad7ff', 0.35, 120, 2);
+      return;
+    }
+
+    if (stage.id === 'airplane') {
+      drawSun(410, 45, 18, '#fff3a6');
+      drawCloudLayer(0.18, 60, 60, 'rgba(255,255,255,0.82)');
+      drawCloudLayer(0.42, 116, 46, 'rgba(255,255,255,0.68)');
+      drawCloudLayer(0.86, 176, 34, 'rgba(255,255,255,0.45)');
+      drawSpeedLines('#d8f3ff', 0.28, 150, 1.4);
+      return;
+    }
+
+    drawSun(398, 42, 15, 'rgba(255,245,172,0.85)');
+    if (stage.id === 'walk') {
+      drawCloudLayer(0.2, 44, 38, 'rgba(255,255,255,0.7)');
+      drawBuildingLayer(0.28, 132, 56, 74, '#9fc47b');
+      drawTreeLayer(0.58, 158, '#417543');
+      drawPassingSigns(stage, 1.0);
+    } else if (stage.id === 'car') {
+      drawBuildingLayer(0.22, 116, 46, 90, '#8eb5c8');
+      drawBuildingLayer(0.48, 150, 34, 70, '#6f8f9e');
+      drawRoadTraffic(stage);
+      drawUtilityPoles(0.95, '#4f5960');
+    } else if (stage.id === 'train') {
+      drawBuildingLayer(0.22, 108, 42, 88, '#89b7c7');
+      drawUtilityPoles(0.72, '#44515a');
+      drawOpposingTrain(stage, 0.95);
+    } else if (stage.id === 'shinkansen') {
+      drawMountainLayer(0.16, 125, '#8db7d7');
+      drawBuildingLayer(0.38, 142, 24, 52, '#7fa8c7');
+      drawSpeedLines('#e7f6ff', 0.72, 84, 2.5);
+      drawOpposingTrain(stage, 1.25);
     }
   }
 
@@ -295,6 +313,165 @@ export function createGame(canvas, ui = {}) {
     ctx.fill();
   }
 
+  function drawSun(x, y, r, color) {
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  function drawCloudLayer(speed, y, size, color) {
+    const gap = size * 3.4;
+    const off = (state.bgOffset * speed) % gap;
+    ctx.fillStyle = color;
+    for (let x = -gap; x < WIDTH + gap; x += gap) {
+      cloud(x - off, y + Math.sin((state.animT + x) * 0.012) * 2, size);
+    }
+  }
+
+  function drawBuildingLayer(speed, baseY, minW, maxH, color) {
+    const gap = minW * 1.55;
+    const off = (state.bgOffset * speed) % gap;
+    for (let x = -gap; x < WIDTH + gap; x += gap) {
+      const px = x - off;
+      const h = 34 + ((Math.floor(x / gap) * 29) % maxH);
+      const w = minW + ((Math.floor(x / gap) * 13) % 28);
+      ctx.fillStyle = color;
+      ctx.fillRect(px, baseY - h, w, h);
+      ctx.fillStyle = 'rgba(255,255,255,0.28)';
+      for (let wx = px + 6; wx < px + w - 4; wx += 14) {
+        ctx.fillRect(wx, baseY - h + 10, 5, 6);
+        ctx.fillRect(wx, baseY - h + 24, 5, 6);
+      }
+    }
+  }
+
+  function drawTreeLayer(speed, baseY, color) {
+    const gap = 58;
+    const off = (state.bgOffset * speed) % gap;
+    for (let x = -gap; x < WIDTH + gap; x += gap) {
+      const px = x - off;
+      ctx.fillStyle = '#6d4a31';
+      ctx.fillRect(px + 14, baseY - 24, 5, 24);
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      ctx.arc(px + 16, baseY - 30, 14, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  function drawUtilityPoles(speed, color) {
+    const gap = 86;
+    const off = (state.bgOffset * speed) % gap;
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 2;
+    for (let x = -gap; x < WIDTH + gap; x += gap) {
+      const px = x - off;
+      ctx.beginPath();
+      ctx.moveTo(px, 72);
+      ctx.lineTo(px, GROUND_Y + PLAYER_SIZE);
+      ctx.moveTo(px - 13, 92);
+      ctx.lineTo(px + 13, 92);
+      ctx.moveTo(px - 18, 104);
+      ctx.lineTo(px + 18, 98);
+      ctx.stroke();
+    }
+  }
+
+  function drawRoadTraffic(stage) {
+    const gap = 190;
+    const off = (state.bgOffset * 1.35 + state.animT * 1.1) % gap;
+    for (let x = -gap; x < WIDTH + gap; x += gap) {
+      const px = WIDTH - (x + off);
+      ctx.fillStyle = shade(stage.accent, -0.12);
+      ctx.fillRect(px, 156, 50, 14);
+      ctx.fillStyle = '#dceeff';
+      ctx.fillRect(px + 8, 150, 22, 8);
+      wheel(px + 10, 171, 5);
+      wheel(px + 39, 171, 5);
+    }
+  }
+
+  function drawOpposingTrain(stage, speed) {
+    const gap = 300;
+    const off = (state.bgOffset * speed + state.animT * 0.9) % gap;
+    const y = 145;
+    for (let x = -gap; x < WIDTH + gap; x += gap) {
+      const px = WIDTH - (x + off);
+      ctx.fillStyle = stage.id === 'train' ? '#f2e9d5' : '#f7fbff';
+      roundedRectPath(px, y, 138, 24, 9);
+      ctx.fill();
+      ctx.fillStyle = stage.accent;
+      ctx.fillRect(px + 7, y + 16, 122, 3);
+      ctx.fillStyle = '#6ca8c8';
+      for (let wx = px + 16; wx < px + 112; wx += 24) ctx.fillRect(wx, y + 6, 14, 7);
+    }
+  }
+
+  function drawMountainLayer(speed, baseY, color) {
+    const gap = 160;
+    const off = (state.bgOffset * speed) % gap;
+    ctx.fillStyle = color;
+    for (let x = -gap; x < WIDTH + gap; x += gap) {
+      const px = x - off;
+      ctx.beginPath();
+      ctx.moveTo(px, baseY);
+      ctx.lineTo(px + 70, baseY - 54);
+      ctx.lineTo(px + 150, baseY);
+      ctx.closePath();
+      ctx.fill();
+    }
+  }
+
+  function drawSpeedLines(color, speed, gap, width) {
+    const off = (state.bgOffset * speed + state.animT * speed) % gap;
+    ctx.strokeStyle = color;
+    ctx.lineWidth = width;
+    for (let x = -gap; x < WIDTH + gap; x += gap) {
+      const px = x - off;
+      ctx.beginPath();
+      ctx.moveTo(px, 58 + ((x / gap) % 5) * 22);
+      ctx.lineTo(px + 56, 58 + ((x / gap) % 5) * 22);
+      ctx.stroke();
+    }
+  }
+
+  function drawStars() {
+    ctx.fillStyle = '#ffffff';
+    for (let i = 0; i < 48; i += 1) {
+      const x = (i * 73 - state.bgOffset * (0.18 + (i % 3) * 0.08)) % (WIDTH + 24);
+      const y = 24 + ((i * 41) % 150);
+      const s = 1 + (i % 3);
+      ctx.fillRect((x + WIDTH + 24) % (WIDTH + 24) - 12, y, s, s);
+    }
+  }
+
+  function drawOrbitingPlanets(stage) {
+    const wobble = Math.sin(state.animT * 0.025);
+    ctx.fillStyle = shade(stage.accent, -0.08);
+    ctx.beginPath();
+    ctx.arc(365, 76 + wobble * 5, 22, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,0.55)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.ellipse(365, 76 + wobble * 5, 34, 8, -0.25, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+
+  function drawPassingSigns(stage, speed) {
+    const gap = 135;
+    const off = (state.bgOffset * speed) % gap;
+    for (let x = -gap; x < WIDTH + gap; x += gap) {
+      const px = x - off;
+      ctx.fillStyle = shade(stage.accent, -0.15);
+      ctx.fillRect(px, 144, 26, 18);
+      ctx.fillStyle = '#f4f7ec';
+      ctx.fillRect(px + 3, 148, 20, 3);
+      ctx.fillRect(px + 3, 154, 14, 3);
+    }
+  }
+
   function drawTerrain(stage) {
     ctx.fillStyle = stage.ground;
     for (const seg of state.segments) {
@@ -304,7 +481,82 @@ export function createGame(canvas, ui = {}) {
       ctx.fillRect(sx, GROUND_Y + PLAYER_SIZE, ex - sx, HEIGHT - GROUND_Y);
       ctx.fillStyle = shade(stage.ground, 0.15);
       ctx.fillRect(sx, GROUND_Y + PLAYER_SIZE, ex - sx, 4);
+      drawStageStructure(stage, sx, ex - sx);
       ctx.fillStyle = stage.ground;
+    }
+  }
+
+  function drawStageStructure(stage, sx, width) {
+    const top = GROUND_Y + PLAYER_SIZE;
+    if (stage.structure === 'promenade') {
+      ctx.fillStyle = shade(stage.ground, 0.28);
+      for (let x = sx + 10; x < sx + width; x += 34) {
+        ctx.fillRect(x, top + 4, 20, 3);
+        ctx.fillRect(x + 2, top + 11, 14, 2);
+      }
+      return;
+    }
+
+    if (stage.structure === 'guardrail') {
+      ctx.strokeStyle = '#d8e1e6';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(sx, top + 6);
+      ctx.lineTo(sx + width, top + 6);
+      ctx.moveTo(sx, top + 15);
+      ctx.lineTo(sx + width, top + 15);
+      ctx.stroke();
+      ctx.fillStyle = '#b4c0c8';
+      for (let x = sx + 8; x < sx + width; x += 30) ctx.fillRect(x, top + 4, 4, 18);
+      return;
+    }
+
+    if (stage.structure === 'rail') {
+      ctx.strokeStyle = '#cfd6db';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(sx, top + 7);
+      ctx.lineTo(sx + width, top + 7);
+      ctx.moveTo(sx, top + 22);
+      ctx.lineTo(sx + width, top + 22);
+      ctx.stroke();
+      ctx.fillStyle = '#8a6a4a';
+      for (let x = sx + 4; x < sx + width; x += 22) ctx.fillRect(x, top + 5, 5, 22);
+      return;
+    }
+
+    if (stage.structure === 'soundwall') {
+      ctx.fillStyle = 'rgba(210,228,238,0.8)';
+      for (let x = sx; x < sx + width; x += 28) {
+        ctx.fillRect(x, top - 22, 22, 22);
+        ctx.fillStyle = 'rgba(255,255,255,0.45)';
+        ctx.fillRect(x + 3, top - 18, 16, 3);
+        ctx.fillStyle = 'rgba(210,228,238,0.8)';
+      }
+      return;
+    }
+
+    if (stage.structure === 'runway') {
+      ctx.fillStyle = '#ffffff';
+      for (let x = sx + 14; x < sx + width; x += 58) ctx.fillRect(x, top + 10, 28, 4);
+      ctx.fillStyle = '#f6d55c';
+      ctx.fillRect(sx, top + 2, width, 2);
+      return;
+    }
+
+    if (stage.structure === 'catwalk') {
+      ctx.strokeStyle = '#9fd9ff';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(sx, top + 6);
+      ctx.lineTo(sx + width, top + 6);
+      ctx.moveTo(sx, top + 24);
+      ctx.lineTo(sx + width, top + 24);
+      for (let x = sx; x < sx + width; x += 24) {
+        ctx.moveTo(x, top + 5);
+        ctx.lineTo(x + 18, top + 25);
+      }
+      ctx.stroke();
     }
   }
 
@@ -366,7 +618,7 @@ export function createGame(canvas, ui = {}) {
     ctx.closePath();
   }
 
-  function drawWindowFrame(stage) {
+  function drawWindowFrame(stage, options = {}) {
     const frame = 17;
     const radius = 18;
     const innerX = frame;
@@ -376,8 +628,17 @@ export function createGame(canvas, ui = {}) {
     const frameColor = shade(stage.ground, -0.58);
     const frameEdge = shade(stage.ground, -0.78);
     const sillColor = shade(stage.ground, 0.25);
+    const progress = options.progress ?? 1;
+    const scale = options.scale ?? 1;
+    const alpha = options.alpha ?? 1;
 
     ctx.save();
+    ctx.globalAlpha *= alpha;
+    if (scale !== 1) {
+      ctx.translate(WIDTH / 2, HEIGHT / 2);
+      ctx.scale(scale, scale);
+      ctx.translate(-WIDTH / 2, -HEIGHT / 2);
+    }
     ctx.beginPath();
     ctx.rect(0, 0, WIDTH, HEIGHT);
     roundedRectPath(innerX, innerY, innerW, innerH, radius, false);
@@ -404,7 +665,7 @@ export function createGame(canvas, ui = {}) {
     ctx.fillStyle = glass;
     ctx.fillRect(0, 0, WIDTH, HEIGHT);
 
-    ctx.fillStyle = 'rgba(255,255,255,0.16)';
+    ctx.fillStyle = `rgba(255,255,255,${0.08 + progress * 0.08})`;
     ctx.beginPath();
     ctx.moveTo(58, 20);
     ctx.lineTo(148, 20);
@@ -413,6 +674,176 @@ export function createGame(canvas, ui = {}) {
     ctx.closePath();
     ctx.fill();
     ctx.restore();
+  }
+
+  function drawIntro(stage) {
+    const phase = introPhase(state.introT);
+    if (phase === 'play') return false;
+
+    if (phase === 'exterior') {
+      const progress = Math.max(0, Math.min(1, (INTRO_FRAMES - state.introT) / INTRO_EXTERIOR_FRAMES));
+      drawExteriorGround(stage);
+      drawVehicleExterior(stage, progress);
+      drawIntroCaption(`${stage.name}ステージへ移動中`);
+      return true;
+    }
+
+    const progress = boardingProgress(state.introT);
+    drawTerrain(stage);
+    drawPlayer();
+    ctx.fillStyle = `rgba(0,0,0,${0.18 * (1 - progress)})`;
+    ctx.fillRect(0, 0, WIDTH, HEIGHT);
+    drawWindowFrame(stage, {
+      progress,
+      scale: 0.62 + progress * 0.38,
+      alpha: 0.38 + progress * 0.62,
+    });
+    drawIntroCaption('車内の窓へ');
+    return true;
+  }
+
+  function drawExteriorGround(stage) {
+    const y = GROUND_Y + PLAYER_SIZE + 4;
+    ctx.fillStyle = shade(stage.ground, -0.08);
+    ctx.fillRect(0, y, WIDTH, HEIGHT - y);
+    drawStageStructure(stage, -20, WIDTH + 40);
+  }
+
+  function drawVehicleExterior(stage, progress) {
+    const x = WIDTH + 70 - progress * (WIDTH + 190);
+    const y = stage.id === 'airplane' ? 96 : stage.id === 'space' ? 104 : 132;
+    ctx.save();
+    ctx.translate(x, y);
+
+    if (stage.id === 'walk') {
+      drawBus(stage);
+    } else if (stage.id === 'car') {
+      drawCar(stage);
+    } else if (stage.id === 'train') {
+      drawTrain(stage, 148);
+    } else if (stage.id === 'shinkansen') {
+      drawShinkansen(stage);
+    } else if (stage.id === 'airplane') {
+      drawAirplane(stage);
+    } else if (stage.id === 'space') {
+      drawShuttle(stage);
+    }
+    ctx.restore();
+  }
+
+  function drawBus(stage) {
+    ctx.fillStyle = shade(stage.accent, -0.08);
+    roundedRectPath(0, 0, 126, 45, 8);
+    ctx.fill();
+    drawVehicleWindows(14, 9, 74, 13, 4);
+    ctx.fillStyle = '#f6f2d8';
+    ctx.fillRect(93, 11, 21, 26);
+    wheel(25, 48, 8);
+    wheel(101, 48, 8);
+  }
+
+  function drawCar(stage) {
+    ctx.fillStyle = stage.accent;
+    roundedRectPath(0, 16, 105, 30, 10);
+    ctx.fill();
+    ctx.fillStyle = shade(stage.accent, 0.28);
+    roundedRectPath(24, 2, 48, 24, 8);
+    ctx.fill();
+    drawVehicleWindows(30, 7, 34, 10, 2);
+    wheel(23, 47, 8);
+    wheel(82, 47, 8);
+  }
+
+  function drawTrain(stage, length) {
+    ctx.fillStyle = '#f4eee2';
+    roundedRectPath(0, 2, length, 42, 12);
+    ctx.fill();
+    ctx.fillStyle = stage.accent;
+    ctx.fillRect(7, 31, length - 14, 5);
+    drawVehicleWindows(17, 11, length - 48, 13, 5);
+    wheel(28, 47, 5);
+    wheel(length - 30, 47, 5);
+  }
+
+  function drawShinkansen(stage) {
+    ctx.fillStyle = '#f8fbff';
+    ctx.beginPath();
+    ctx.moveTo(0, 41);
+    ctx.quadraticCurveTo(40, 0, 148, 4);
+    ctx.quadraticCurveTo(171, 9, 180, 28);
+    ctx.lineTo(170, 43);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = stage.accent;
+    ctx.fillRect(34, 29, 118, 4);
+    drawVehicleWindows(46, 13, 72, 10, 5);
+  }
+
+  function drawAirplane(stage) {
+    ctx.fillStyle = '#f7fbff';
+    ctx.beginPath();
+    ctx.ellipse(86, 26, 86, 22, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = shade(stage.accent, -0.12);
+    ctx.beginPath();
+    ctx.moveTo(64, 34);
+    ctx.lineTo(18, 68);
+    ctx.lineTo(105, 43);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillRect(135, 6, 22, 27);
+    drawVehicleWindows(45, 20, 68, 5, 8);
+  }
+
+  function drawShuttle(stage) {
+    ctx.fillStyle = '#edf7ff';
+    ctx.beginPath();
+    ctx.moveTo(0, 29);
+    ctx.quadraticCurveTo(34, -10, 118, 8);
+    ctx.quadraticCurveTo(150, 16, 164, 34);
+    ctx.lineTo(72, 48);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = stage.accent;
+    ctx.fillRect(38, 24, 74, 5);
+    ctx.fillStyle = '#74d7ff';
+    ctx.fillRect(52, 12, 28, 10);
+    ctx.fillStyle = 'rgba(255,180,80,0.8)';
+    ctx.beginPath();
+    ctx.moveTo(-10, 30);
+    ctx.lineTo(-36, 20 + Math.sin(state.animT * 0.3) * 6);
+    ctx.lineTo(-10, 42);
+    ctx.fill();
+  }
+
+  function drawVehicleWindows(x, y, width, height, count) {
+    const gap = width / count;
+    ctx.fillStyle = '#78b9d8';
+    for (let i = 0; i < count; i += 1) {
+      roundedRectPath(x + i * gap, y, gap - 5, height, 3);
+      ctx.fill();
+    }
+  }
+
+  function wheel(x, y, r) {
+    ctx.fillStyle = '#263238';
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#b8c3ca';
+    ctx.beginPath();
+    ctx.arc(x, y, r * 0.42, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  function drawIntroCaption(text) {
+    ctx.textAlign = 'center';
+    ctx.font = 'bold 15px sans-serif';
+    ctx.fillStyle = 'rgba(0,0,0,0.52)';
+    ctx.fillRect(0, HEIGHT - 42, WIDTH, 27);
+    ctx.fillStyle = '#fff';
+    ctx.fillText(text, WIDTH / 2, HEIGHT - 24);
+    ctx.textAlign = 'left';
   }
 
   function drawHud(stage) {
@@ -440,9 +871,11 @@ export function createGame(canvas, ui = {}) {
   function render() {
     const stage = getStage(state.stageIndex);
     drawBackground(stage);
-    drawTerrain(stage);
-    drawPlayer();
-    drawWindowFrame(stage);
+    if (!drawIntro(stage)) {
+      drawTerrain(stage);
+      drawPlayer();
+      drawWindowFrame(stage);
+    }
     drawHud(stage);
     if (typeof ui.onFrame === 'function') {
       ui.onFrame({ level: state.level, stage, actions: unlockedActions(state.level) });

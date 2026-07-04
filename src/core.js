@@ -7,16 +7,18 @@
 // and gravity vary so the feel changes as you progress. At least 3 required by
 // the Definition of Done; all 6 from the spec are provided.
 export const STAGES = [
-  { id: 'walk',       name: '徒歩',     bgSpeed: 1.0, scrollSpeed: 3.2, gravity: 0.62, gapChance: 0.16, sky: '#8fd3ff', ground: '#6b8f3a', accent: '#c98a3a' },
-  { id: 'car',        name: '車',       bgSpeed: 1.8, scrollSpeed: 4.0, gravity: 0.62, gapChance: 0.22, sky: '#7ec8f2', ground: '#7b7b82', accent: '#d64b4b' },
-  { id: 'train',      name: '電車',     bgSpeed: 2.8, scrollSpeed: 4.8, gravity: 0.62, gapChance: 0.26, sky: '#6bb7e6', ground: '#5a5a63', accent: '#e0a020' },
-  { id: 'shinkansen', name: '新幹線',   bgSpeed: 4.2, scrollSpeed: 5.8, gravity: 0.62, gapChance: 0.30, sky: '#5aa6dd', ground: '#4a4a52', accent: '#2b7fff' },
-  { id: 'airplane',   name: '飛行機',   bgSpeed: 3.5, scrollSpeed: 5.2, gravity: 0.50, gapChance: 0.28, sky: '#bfe4ff', ground: '#eef4fb', accent: '#9fc6e8' },
-  { id: 'space',      name: '宇宙',     bgSpeed: 2.0, scrollSpeed: 4.6, gravity: 0.34, gapChance: 0.34, sky: '#0b0b2a', ground: '#3a3a5a', accent: '#f5d76e' },
+  { id: 'walk',       name: '徒歩',     bgSpeed: 1.0, scrollSpeed: 3.2, gravity: 0.62, gapChance: 0.16, sky: '#8fd3ff', ground: '#6b8f3a', accent: '#c98a3a', structure: 'promenade' },
+  { id: 'car',        name: '車',       bgSpeed: 1.8, scrollSpeed: 4.0, gravity: 0.62, gapChance: 0.22, sky: '#7ec8f2', ground: '#7b7b82', accent: '#d64b4b', structure: 'guardrail' },
+  { id: 'train',      name: '電車',     bgSpeed: 2.8, scrollSpeed: 4.8, gravity: 0.62, gapChance: 0.26, sky: '#6bb7e6', ground: '#5a5a63', accent: '#e0a020', structure: 'rail' },
+  { id: 'shinkansen', name: '新幹線',   bgSpeed: 4.2, scrollSpeed: 5.8, gravity: 0.62, gapChance: 0.30, sky: '#5aa6dd', ground: '#4a4a52', accent: '#2b7fff', structure: 'soundwall' },
+  { id: 'airplane',   name: '飛行機',   bgSpeed: 3.5, scrollSpeed: 5.2, gravity: 0.50, gapChance: 0.28, sky: '#bfe4ff', ground: '#eef4fb', accent: '#9fc6e8', structure: 'runway' },
+  { id: 'space',      name: '宇宙',     bgSpeed: 2.0, scrollSpeed: 4.6, gravity: 0.34, gapChance: 0.34, sky: '#0b0b2a', ground: '#3a3a5a', accent: '#f5d76e', structure: 'catwalk' },
 ];
 
 export const STAGE_COUNT = STAGES.length;
 export const INTRO_FRAMES = 84;
+export const INTRO_EXTERIOR_FRAMES = 48;
+export const INTRO_BOARDING_FRAMES = INTRO_FRAMES - INTRO_EXTERIOR_FRAMES;
 
 export function getStage(index) {
   return STAGES[((index % STAGE_COUNT) + STAGE_COUNT) % STAGE_COUNT];
@@ -24,6 +26,18 @@ export function getStage(index) {
 
 export function isIntroActive(introT) {
   return introT > 0;
+}
+
+export function introPhase(introT) {
+  if (introT <= 0) return 'play';
+  if (introT > INTRO_BOARDING_FRAMES) return 'exterior';
+  return 'boarding';
+}
+
+export function boardingProgress(introT) {
+  if (introT <= 0) return 1;
+  if (introPhase(introT) === 'exterior') return 0;
+  return Math.max(0, Math.min(1, (INTRO_BOARDING_FRAMES - introT) / INTRO_BOARDING_FRAMES));
 }
 
 export function isStageUnlocked(stageIndex, highestCleared) {

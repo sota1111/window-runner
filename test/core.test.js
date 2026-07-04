@@ -13,7 +13,11 @@ import {
   maxJumps,
   awardStageClear,
   INTRO_FRAMES,
+  INTRO_EXTERIOR_FRAMES,
+  INTRO_BOARDING_FRAMES,
   isIntroActive,
+  introPhase,
+  boardingProgress,
   generatePlatforms,
   isOnSolid,
   stepVelocity,
@@ -121,10 +125,44 @@ test('intro timing stays active only for positive frame counts', () => {
   assert.equal(Number.isInteger(INTRO_FRAMES), true);
   assert.ok(INTRO_FRAMES >= 72);
   assert.ok(INTRO_FRAMES <= 96);
+  assert.equal(INTRO_EXTERIOR_FRAMES + INTRO_BOARDING_FRAMES, INTRO_FRAMES);
   assert.equal(isIntroActive(INTRO_FRAMES), true);
   assert.equal(isIntroActive(1), true);
   assert.equal(isIntroActive(0), false);
   assert.equal(isIntroActive(-1), false);
+});
+
+test('introPhase splits the intro into exterior then boarding then play', () => {
+  assert.equal(introPhase(INTRO_FRAMES), 'exterior');
+  assert.equal(introPhase(INTRO_BOARDING_FRAMES + 1), 'exterior');
+  assert.equal(introPhase(INTRO_BOARDING_FRAMES), 'boarding');
+  assert.equal(introPhase(1), 'boarding');
+  assert.equal(introPhase(0), 'play');
+  assert.equal(introPhase(-1), 'play');
+});
+
+test('boardingProgress is clamped and increases during boarding', () => {
+  assert.equal(boardingProgress(INTRO_FRAMES), 0);
+  assert.equal(boardingProgress(INTRO_BOARDING_FRAMES), 0);
+  assert.ok(boardingProgress(Math.floor(INTRO_BOARDING_FRAMES / 2)) > 0.4);
+  assert.ok(boardingProgress(Math.floor(INTRO_BOARDING_FRAMES / 2)) < 0.6);
+  assert.ok(boardingProgress(1) < 1);
+  assert.equal(boardingProgress(0), 1);
+});
+
+test('every stage declares a supported visual structure', () => {
+  const supported = new Set(['promenade', 'guardrail', 'rail', 'soundwall', 'runway', 'catwalk']);
+  assert.deepEqual(STAGES.map((stage) => stage.structure), [
+    'promenade',
+    'guardrail',
+    'rail',
+    'soundwall',
+    'runway',
+    'catwalk',
+  ]);
+  for (const stage of STAGES) {
+    assert.equal(supported.has(stage.structure), true, `${stage.id} structure must be supported`);
+  }
 });
 
 test('generatePlatforms is deterministic and has safe start/finish', () => {
