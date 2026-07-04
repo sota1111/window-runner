@@ -25,7 +25,21 @@ import {
   MAX_LEVEL,
   XP_PER_STAGE,
   GLIDE_MAX_FALL,
+  gapCrossFactor,
+  maxCrossableGap,
+  requiredActionForLevel,
 } from '../src/core.js';
+
+// Extract the gaps (uncovered spans) between consecutive platform segments.
+function gapsOf(segments) {
+  const gaps = [];
+  for (let i = 1; i < segments.length; i++) {
+    const prevEnd = segments[i - 1].end;
+    const start = segments[i].start;
+    if (start > prevEnd) gaps.push({ start: prevEnd, width: start - prevEnd, mid: (prevEnd + start) / 2 });
+  }
+  return gaps;
+}
 
 test('at least 3 stages exist (DoD: 最低3ステージ)', () => {
   assert.ok(STAGE_COUNT >= 3);
@@ -179,6 +193,64 @@ test('generatePlatforms is deterministic and has safe start/finish', () => {
   // Different stage index -> different terrain (has gaps to jump).
   const hasGap = p1.some((seg, i) => i > 0 && seg.start > p1[i - 1].end);
   assert.ok(hasGap, 'terrain must contain at least one gap to cross');
+});
+
+test('gapCrossFactor rises with level and requiredActionForLevel maps unlocks', () => {
+  for (let l = 1; l <= MAX_LEVEL; l++) {
+    assert.ok(gapCrossFactor(l) > gapCrossFactor(l - 1), `level ${l} crosses wider than ${l - 1}`);
+  }
+  assert.equal(gapCrossFactor(0), 0);
+  assert.equal(requiredActionForLevel(1), 'jump');
+  assert.equal(requiredActionForLevel(2), 'doubleJump');
+  assert.equal(requiredActionForLevel(3), 'glide');
+  assert.equal(requiredActionForLevel(99), null);
+});
+
+test('generatePlatforms scales latter-half difficulty by level (forces the new action)', () => {
+  const length = 4200;
+  for (const stageIndex of [0, 1, 2]) {
+    for (const level of [2, 3]) {
+      const segs = generatePlatforms(stageIndex, length, 777, level);
+      // Deterministic in (stageIndex, length, seed, level).
+      assert.deepEqual(segs, generatePlatforms(stageIndex, length, 777, level));
+
+      const prevCap = maxCrossableGap(stageIndex, level - 1);
+      const curCap = maxCrossableGap(stageIndex, level);
+      const latterGaps = gapsOf(segs).filter((g) => g.mid >= length * 0.5);
+      assert.ok(latterGaps.length > 0, 'latter half must contain gaps');
+      for (const g of latterGaps) {
+        // Too wide for the previous level's actions -> the new action is required.
+        assert.ok(g.width > prevCap, `gap ${g.width} must exceed prev-level reach ${prevCap}`);
+        // But still within the current level's reach -> beatable.
+        assert.ok(g.width <= curCap, `gap ${g.width} must be within level reach ${curCap}`);
+      }
+    }
+  }
+});
+
+test('first half stays single-jump fair while the latter half gets harder', () => {
+  const length = 4200;
+  const segs = generatePlatforms(1, length, 4242, 3);
+  const singleJumpCap = maxCrossableGap(1, 1);
+  const gaps = gapsOf(segs);
+  const firstHalf = gaps.filter((g) => g.mid < length * 0.5);
+  const latterHalf = gaps.filter((g) => g.mid >= length * 0.5);
+  assert.ok(firstHalf.length > 0 && latterHalf.length > 0);
+  for (const g of firstHalf) {
+    assert.ok(g.width <= singleJumpCap, `first-half gap ${g.width} must be single-jump crossable`);
+  }
+  const maxFirst = Math.max(...firstHalf.map((g) => g.width));
+  const maxLatter = Math.max(...latterHalf.map((g) => g.width));
+  assert.ok(maxLatter > maxFirst, 'latter half must have wider (harder) gaps');
+});
+
+test('generatePlatforms default level keeps every gap single-jump crossable', () => {
+  const length = 4200;
+  const segs = generatePlatforms(0, length, 777); // no level arg -> level 1
+  const cap = maxCrossableGap(0, 1);
+  for (const g of gapsOf(segs)) {
+    assert.ok(g.width <= cap, `level-1 gap ${g.width} must be <= single-jump reach ${cap}`);
+  }
 });
 
 test('isOnSolid detects gaps between segments', () => {

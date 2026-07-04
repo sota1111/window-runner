@@ -133,32 +133,86 @@ export function jumpReach(stageIndex) {
   return stage.scrollSpeed * airTime;
 }
 
+// --- Difficulty scaling by level -------------------------------------------
+// As the player levels up, the LATTER HALF of a stage gets harder: gaps widen
+// beyond what the previous level's actions could cross, so clearing them
+// requires the traversal action unlocked at the new level. Widths stay within
+// what the CURRENT level can cross, so every stage remains beatable.
+//
+// GAP_CROSS_FACTOR[level] is the widest gap — as a multiple of jumpReach — that
+// the actions available at `level` can carry the player across. It is monotonic
+// in level and deliberately conservative so generated terrain is always
+// traversable with the matching action:
+//   1 jump only  · 2 + double jump  · 3 + glide  · 4 + dash  · 5 + wall kick.
+export const GAP_CROSS_FACTOR = {
+  0: 0, // no actions -> cannot cross any gap
+  1: 0.62, // single jump (matches the original safe gap ceiling)
+  2: 1.15, // + double jump
+  3: 1.95, // + glide (parachute) greatly extends air time
+  4: 2.25, // + dash margin
+  5: 2.55, // + wall kick margin
+};
+
+export function gapCrossFactor(level) {
+  const l = Math.max(0, Math.min(MAX_LEVEL, Math.floor(level)));
+  return GAP_CROSS_FACTOR[l];
+}
+
+// Widest gap (world units) the actions unlocked at `level` can clear on a stage.
+export function maxCrossableGap(stageIndex, level) {
+  return jumpReach(stageIndex) * gapCrossFactor(level);
+}
+
+// The action unlocked exactly at `level` — the one the latter half forces —
+// or null if no new action opens at that level.
+export function requiredActionForLevel(level) {
+  return ACTION_ORDER.find((a) => ACTION_UNLOCK_LEVEL[a] === level) || null;
+}
+
 // Build platform segments in world-space for a stage.
 // Returns an array of { start, end } (end exclusive), covering [0, length).
-// The first and last segments are always solid landing zones. Gaps are sized
-// as a fraction of the stage's jump reach so they are always crossable, and
-// they get wider (harder) at higher vehicle speeds via `gapChance`.
-export function generatePlatforms(stageIndex, length = 4000, seed = 12345) {
+// The first and last segments are always solid landing zones. The FIRST half is
+// fair single-jump terrain; the LATTER half scales with `level` — its gaps are
+// wider than the previous level's actions can cross (so the newly unlocked
+// action is required) yet still within the current level's reach (so it stays
+// beatable). Terrain is deterministic in (stageIndex, length, seed, level).
+export function generatePlatforms(stageIndex, length = 4000, seed = 12345, level = 1) {
   const stage = getStage(stageIndex);
   const rng = mulberry32(seed + stageIndex * 1013);
   const reach = jumpReach(stageIndex);
-  const minGap = reach * 0.28;
-  const maxGap = reach * (0.42 + stage.gapChance * 0.5); // never exceeds ~0.6 reach
+  // First-half gaps: fair single-jump terrain (as in the original design).
+  const easyMinGap = reach * 0.28;
+  const easyMaxGap = reach * (0.42 + stage.gapChance * 0.5); // never exceeds ~0.6 reach
+  // Latter-half gaps: above the previous level's reach (forces the new action),
+  // but within the current level's reach (still crossable).
+  const lvl = Math.max(1, Math.min(MAX_LEVEL, Math.floor(level)));
+  const hardMinGap = maxCrossableGap(stageIndex, lvl - 1) * 1.03;
+  const hardMaxGap = maxCrossableGap(stageIndex, lvl) * 0.95;
+  const midpoint = length * 0.5;
+  const minPlat = 190; // guaranteed landing width after each gap
   const segments = [];
   const startLen = 420; // guaranteed safe start
   segments.push({ start: 0, end: startLen });
   let x = startLen;
   const endSafe = length - 360; // guaranteed safe finish
   while (x < endSafe) {
-    const gap = minGap + rng() * (maxGap - minGap);
-    const plat = 190 + Math.floor(rng() * 200);
-    const platStart = Math.min(x + gap, endSafe);
-    const platEnd = Math.min(platStart + plat, endSafe);
+    const latter = x >= midpoint;
+    let lo = latter ? hardMinGap : easyMinGap;
+    let hi = latter ? hardMaxGap : easyMaxGap;
+    if (hi < lo) hi = lo; // degenerate guard (e.g. level 1 latter half)
+    const gap = lo + rng() * (hi - lo);
+    const plat = minPlat + Math.floor(rng() * 200);
+    // Stop before a full gap + landing platform no longer fits: never place a
+    // runt or oversized gap right before the goal.
+    if (x + gap + minPlat > endSafe) break;
+    const platStart = x + gap;
+    const platEnd = platStart + plat;
     segments.push({ start: platStart, end: platEnd });
     x = platEnd;
     // (x_prev .. platStart is intentionally left uncovered = the gap)
   }
-  segments.push({ start: endSafe, end: length });
+  // Extend the final platform through the guaranteed safe finish zone.
+  segments[segments.length - 1].end = length;
   return segments;
 }
 
