@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Window Runner</title>
+  <style>
+    :root { color-scheme: dark; }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0; height: 100%;
+      background: #12131c;
+      color: #e8eaf2;
+      font-family: system-ui, -apple-system, "Hiragino Kaku Gothic ProN", sans-serif;
+      -webkit-user-select: none; user-select: none;
+      overscroll-behavior: none;
+    }
+    .wrap {
+      min-height: 100%;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      gap: 12px; padding: 16px;
+    }
+    h1 { margin: 0; font-size: 20px; letter-spacing: 0.04em; }
+    .sub { margin: 0; font-size: 12px; color: #99a; }
+    #stage {
+      width: min(96vw, 720px);
+      aspect-ratio: 16 / 9;
+      border-radius: 12px;
+      background: #000;
+      touch-action: none;
+      image-rendering: pixelated;
+      box-shadow: 0 10px 40px rgba(0,0,0,0.5);
+    }
+    .actions {
+      display: flex; flex-wrap: wrap; gap: 6px; justify-content: center;
+      max-width: min(96vw, 720px);
+    }
+    .chip {
+      font-size: 12px; padding: 4px 10px; border-radius: 999px;
+      background: #23253a; color: #6b6f8c;
+    }
+    .chip.on { background: #2b7fff; color: #fff; }
+    .hint { font-size: 12px; color: #8a8fae; text-align: center; line-height: 1.6; }
+    kbd { background: #23253a; border-radius: 4px; padding: 1px 6px; font-size: 11px; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Window Runner</h1>
+    <p class="sub">乗り物の窓の外を走り抜けよう — タップだけで遊べる横スクロールアクション</p>
+    <canvas id="stage" width="480" height="270" aria-label="Window Runner game"></canvas>
+    <div class="actions" id="actions"></div>
+    <p class="hint">
+      <kbd>タップ</kbd> ジャンプ　/　<kbd>連続タップ</kbd> 二段ジャンプ　/　<kbd>長押し</kbd> パラシュート滑空<br />
+      地形の切れ目に落ちないように渡り、ステージ終点まで走り切ろう
+    </p>
+  </div>
+  <script type="module">
+    import { createGame } from './src/game.js';
+    const canvas = document.getElementById('stage');
+    const actionsEl = document.getElementById('actions');
+    const ALL = [
+      ['jump', 'ジャンプ'], ['doubleJump', '二段ジャンプ'], ['glide', '滑空'],
+      ['dash', 'ダッシュ'], ['wallKick', '壁キック'],
+    ];
+    const game = createGame(canvas, {
+      onFrame({ actions }) {
+        if (actionsEl.dataset.sig === actions.join(',')) return;
+        actionsEl.dataset.sig = actions.join(',');
+        actionsEl.innerHTML = ALL.map(
+          ([id, label]) => `<span class="chip ${actions.includes(id) ? 'on' : ''}">${label}</span>`,
+        ).join('');
+      },
+    });
+    game.attachInput(canvas);
+    game.start();
+  </script>
+</body>
+</html>
