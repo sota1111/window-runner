@@ -4,16 +4,19 @@ import {
   STAGES,
   STAGE_COUNT,
   getStage,
+  isStageUnlocked,
+  selectableStages as coreSelectableStages,
+  nextHighestCleared,
   generatePlatforms,
   isOnSolid,
   stepVelocity,
   resolveTap,
   maxJumps,
   isActionUnlocked,
-  awardStageClear,
   levelForXp,
   unlockedActions,
   JUMP_VELOCITY,
+  XP_PER_STAGE,
 } from './core.js';
 
 const WIDTH = 480;
@@ -23,6 +26,7 @@ const PLAYER_X = 120;      // player's fixed on-screen x
 const PLAYER_SIZE = 20;
 const STAGE_LENGTH = 4200;
 const DASH_MULT = 1.6;
+const PROGRESS_KEY = 'window-runner:progress';
 
 const ACTION_LABELS = {
   jump: 'ジャンプ',
@@ -38,6 +42,8 @@ export function createGame(canvas, ui = {}) {
     xp: 0,
     level: 1,
     stageIndex: 0,
+    highestCleared: loadProgress(),
+    mode: 'home',
     running: false,
     // per-run
     worldX: 0,
@@ -61,9 +67,60 @@ export function createGame(canvas, ui = {}) {
     if (typeof ui.onEvent === 'function') ui.onEvent(kind, { ...state, ...extra });
   }
 
+  function levelForProgress(highestCleared) {
+    return levelForXp((highestCleared + 1) * XP_PER_STAGE);
+  }
+
+  function progressXp(highestCleared) {
+    return Math.max(0, highestCleared + 1) * XP_PER_STAGE;
+  }
+
+  function stageList() {
+    return STAGES.map((stage, index) => ({
+      ...stage,
+      index,
+      unlocked: isStageUnlocked(index, state.highestCleared),
+      cleared: index <= state.highestCleared,
+    }));
+  }
+
+  function notifyHome() {
+    if (typeof ui.onHome === 'function') {
+      ui.onHome({
+        stages: stageList(),
+        selectable: coreSelectableStages(state.highestCleared),
+        highestCleared: state.highestCleared,
+      });
+    }
+  }
+
+  function enterHome() {
+    state.mode = 'home';
+    state.running = false;
+    state.pointerDown = false;
+    state.gliding = false;
+    state.dashing = false;
+    state.level = levelForProgress(state.highestCleared);
+    state.xp = progressXp(state.highestCleared);
+    state.message = '';
+    notifyHome();
+    report('home');
+  }
+
+  function persistProgress() {
+    try {
+      globalThis.localStorage?.setItem(PROGRESS_KEY, String(state.highestCleared));
+    } catch {
+      // localStorage can be unavailable in private or headless environments.
+    }
+  }
+
   function startStage(index) {
     const stage = getStage(index);
+    state.mode = 'playing';
     state.stageIndex = index;
+    state.xp = progressXp(state.highestCleared);
+    state.level = levelForProgress(state.highestCleared);
     state.worldX = 0;
     state.playerY = GROUND_Y;
     state.vy = 0;
@@ -81,10 +138,10 @@ export function createGame(canvas, ui = {}) {
     report('stageStart', { stage });
   }
 
-  function restartRun() {
-    state.xp = 0;
-    state.level = 1;
-    startStage(0);
+  function selectStage(index) {
+    if (!isStageUnlocked(index, state.highestCleared)) return false;
+    startStage(index);
+    return true;
   }
 
   // --- input ---------------------------------------------------------------
@@ -164,13 +221,24 @@ export function createGame(canvas, ui = {}) {
     if (state.worldX >= STAGE_LENGTH - PLAYER_X - PLAYER_SIZE) {
       state.cleared = true;
       state.running = false;
-      const prog = awardStageClear(state.xp);
-      state.xp = prog.xp;
-      state.level = prog.level;
+      const previousHighestCleared = state.highestCleared;
+      const beforeLevel = state.level;
+      state.highestCleared = nextHighestCleared(state.highestCleared, state.stageIndex);
+      persistProgress();
+      state.xp = progressXp(state.highestCleared);
+      state.level = levelForProgress(state.highestCleared);
+      const newlyUnlocked = unlockedActions(state.level).find((action) => !unlockedActions(beforeLevel).includes(action));
+      const prog = {
+        xp: state.xp,
+        level: state.level,
+        leveledUp: state.level > beforeLevel,
+        unlocked: newlyUnlocked || null,
+      };
+      const firstClear = state.highestCleared > previousHighestCleared;
       state.message = prog.leveledUp
-        ? `クリア！ Lv.${state.level} — ${ACTION_LABELS[prog.unlocked] || '成長'} 解放！`
-        : `クリア！ 経験値 +100`;
-      report('clear', { prog });
+        ? `クリア！ Lv.${state.level} — ${ACTION_LABELS[newlyUnlocked] || '成長'} 解放！`
+        : firstClear ? `クリア！ ステージ解放` : `クリア！`;
+      report('clear', { prog, highestCleared: state.highestCleared });
     }
   }
 
@@ -299,10 +367,10 @@ export function createGame(canvas, ui = {}) {
     }
   }
 
-  // Advance one stage after a clear (loops through vehicles); retry after death.
+  // After a clear, return to stage select; after a miss, retry the same stage.
   function advance() {
     if (state.cleared) {
-      startStage((state.stageIndex + 1) % STAGE_COUNT);
+      enterHome();
     } else if (state.dead) {
       startStage(state.stageIndex);
     }
@@ -337,7 +405,7 @@ export function createGame(canvas, ui = {}) {
   return {
     state,
     start() {
-      restartRun();
+      enterHome();
       if (!raf) frame();
     },
     step,      // exposed for tests/headless stepping
@@ -346,12 +414,30 @@ export function createGame(canvas, ui = {}) {
     onTapStart,
     onTapEnd,
     startStage,
+    selectStage,
+    enterHome,
+    selectableStages() {
+      return coreSelectableStages(state.highestCleared);
+    },
+    stageList,
     attachInput,
     stop() {
       if (raf) cancelAnimationFrame(raf);
       raf = null;
     },
   };
+}
+
+function loadProgress() {
+  try {
+    const value = globalThis.localStorage?.getItem(PROGRESS_KEY);
+    if (value == null) return -1;
+    const parsed = Number.parseInt(value, 10);
+    if (Number.isNaN(parsed)) return -1;
+    return Math.max(-1, Math.min(STAGE_COUNT - 1, parsed));
+  } catch {
+    return -1;
+  }
 }
 
 // Lighten (t>0) or darken (t<0) a hex color.

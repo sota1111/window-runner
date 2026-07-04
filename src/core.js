@@ -21,6 +21,21 @@ export function getStage(index) {
   return STAGES[((index % STAGE_COUNT) + STAGE_COUNT) % STAGE_COUNT];
 }
 
+export function isStageUnlocked(stageIndex, highestCleared) {
+  const cleared = Math.max(-1, highestCleared);
+  return Number.isInteger(stageIndex) && stageIndex >= 0 && stageIndex < STAGE_COUNT && stageIndex <= cleared + 1;
+}
+
+export function selectableStages(highestCleared) {
+  const cleared = Math.max(-1, highestCleared);
+  const maxIndex = Math.min(STAGE_COUNT - 1, cleared + 1);
+  return Array.from({ length: maxIndex + 1 }, (_, i) => i);
+}
+
+export function nextHighestCleared(highestCleared, clearedIndex) {
+  return Math.max(highestCleared, clearedIndex);
+}
+
 // --- Level & action unlocks ------------------------------------------------
 // Actions unlock as the player levels up. Ordering matches the spec §3.2.
 export const ACTION_ORDER = ['jump', 'doubleJump', 'glide', 'dash', 'wallKick'];
