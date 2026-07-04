@@ -7,6 +7,8 @@ import {
   isStageUnlocked,
   selectableStages as coreSelectableStages,
   nextHighestCleared,
+  INTRO_FRAMES,
+  isIntroActive,
   generatePlatforms,
   isOnSolid,
   stepVelocity,
@@ -58,6 +60,7 @@ export function createGame(canvas, ui = {}) {
     segments: [],
     bgOffset: 0,
     animT: 0,
+    introT: 0,
     message: '',
     pointerDown: false,
     pointerDownT: 0,
@@ -133,8 +136,9 @@ export function createGame(canvas, ui = {}) {
     state.segments = generatePlatforms(index, STAGE_LENGTH, 777 + index);
     state.bgOffset = 0;
     state.animT = 0;
+    state.introT = INTRO_FRAMES;
     state.running = true;
-    state.message = `${stage.name} ステージ`;
+    state.message = `${stage.name} ステージ - 発車！`;
     report('stageStart', { stage });
   }
 
@@ -150,6 +154,12 @@ export function createGame(canvas, ui = {}) {
     state.pointerDown = true;
     state.pointerDownT = state.animT;
     if (state.dead || state.cleared) return;
+    if (isIntroActive(state.introT)) {
+      state.introT = 0;
+      state.message = '';
+      state.pointerDown = false;
+      return;
+    }
     const action = resolveTap(state.level, { onGround: state.onGround, jumpsUsed: state.jumpsUsed });
     if (action === 'jump') {
       state.vy = JUMP_VELOCITY;
@@ -175,6 +185,13 @@ export function createGame(canvas, ui = {}) {
     const stage = getStage(state.stageIndex);
 
     if (state.dead || state.cleared) return;
+
+    if (isIntroActive(state.introT)) {
+      state.bgOffset = (state.bgOffset + stage.bgSpeed) % 10000;
+      state.introT -= 1;
+      if (!isIntroActive(state.introT)) state.message = '';
+      return;
+    }
 
     // Long-press → glide (once unlocked and airborne, descending).
     const held = state.pointerDown && state.animT - state.pointerDownT > 8;
@@ -334,6 +351,70 @@ export function createGame(canvas, ui = {}) {
     ctx.restore();
   }
 
+  function roundedRectPath(x, y, w, h, r, begin = true) {
+    const radius = Math.min(r, w / 2, h / 2);
+    if (begin) ctx.beginPath();
+    ctx.moveTo(x + radius, y);
+    ctx.lineTo(x + w - radius, y);
+    ctx.arcTo(x + w, y, x + w, y + radius, radius);
+    ctx.lineTo(x + w, y + h - radius);
+    ctx.arcTo(x + w, y + h, x + w - radius, y + h, radius);
+    ctx.lineTo(x + radius, y + h);
+    ctx.arcTo(x, y + h, x, y + h - radius, radius);
+    ctx.lineTo(x, y + radius);
+    ctx.arcTo(x, y, x + radius, y, radius);
+    ctx.closePath();
+  }
+
+  function drawWindowFrame(stage) {
+    const frame = 17;
+    const radius = 18;
+    const innerX = frame;
+    const innerY = frame + 1;
+    const innerW = WIDTH - frame * 2;
+    const innerH = HEIGHT - frame * 2 - 2;
+    const frameColor = shade(stage.ground, -0.58);
+    const frameEdge = shade(stage.ground, -0.78);
+    const sillColor = shade(stage.ground, 0.25);
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(0, 0, WIDTH, HEIGHT);
+    roundedRectPath(innerX, innerY, innerW, innerH, radius, false);
+    ctx.fillStyle = frameColor;
+    ctx.fill('evenodd');
+
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = frameEdge;
+    roundedRectPath(innerX + 1.5, innerY + 1.5, innerW - 3, innerH - 3, radius - 2);
+    ctx.stroke();
+
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = sillColor;
+    roundedRectPath(innerX + 5, innerY + 5, innerW - 10, innerH - 10, radius - 5);
+    ctx.stroke();
+
+    roundedRectPath(innerX + 3, innerY + 3, innerW - 6, innerH - 6, radius - 4);
+    ctx.clip();
+
+    const glass = ctx.createLinearGradient(0, 0, WIDTH, HEIGHT);
+    glass.addColorStop(0, 'rgba(255,255,255,0.22)');
+    glass.addColorStop(0.18, 'rgba(255,255,255,0.05)');
+    glass.addColorStop(0.42, 'rgba(255,255,255,0)');
+    ctx.fillStyle = glass;
+    ctx.fillRect(0, 0, WIDTH, HEIGHT);
+
+    ctx.fillStyle = 'rgba(255,255,255,0.16)';
+    ctx.beginPath();
+    ctx.moveTo(58, 20);
+    ctx.lineTo(148, 20);
+    ctx.lineTo(326, HEIGHT - 20);
+    ctx.lineTo(254, HEIGHT - 20);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+  }
+
   function drawHud(stage) {
     ctx.fillStyle = 'rgba(0,0,0,0.35)';
     ctx.fillRect(0, 0, WIDTH, 22);
@@ -361,6 +442,7 @@ export function createGame(canvas, ui = {}) {
     drawBackground(stage);
     drawTerrain(stage);
     drawPlayer();
+    drawWindowFrame(stage);
     drawHud(stage);
     if (typeof ui.onFrame === 'function') {
       ui.onFrame({ level: state.level, stage, actions: unlockedActions(state.level) });
