@@ -16,9 +16,14 @@ export const STAGES = [
 ];
 
 export const STAGE_COUNT = STAGES.length;
+export const INTRO_FRAMES = 84;
 
 export function getStage(index) {
   return STAGES[((index % STAGE_COUNT) + STAGE_COUNT) % STAGE_COUNT];
+}
+
+export function isIntroActive(introT) {
+  return introT > 0;
 }
 
 export function isStageUnlocked(stageIndex, highestCleared) {

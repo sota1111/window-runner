@@ -12,6 +12,8 @@ import {
   isActionUnlocked,
   maxJumps,
   awardStageClear,
+  INTRO_FRAMES,
+  isIntroActive,
   generatePlatforms,
   isOnSolid,
   stepVelocity,
@@ -113,6 +115,16 @@ test('awardStageClear reports level-up and the newly unlocked action', () => {
   assert.equal(c.level, MAX_LEVEL);
   assert.equal(c.leveledUp, false);
   assert.equal(c.unlocked, null);
+});
+
+test('intro timing stays active only for positive frame counts', () => {
+  assert.equal(Number.isInteger(INTRO_FRAMES), true);
+  assert.ok(INTRO_FRAMES >= 72);
+  assert.ok(INTRO_FRAMES <= 96);
+  assert.equal(isIntroActive(INTRO_FRAMES), true);
+  assert.equal(isIntroActive(1), true);
+  assert.equal(isIntroActive(0), false);
+  assert.equal(isIntroActive(-1), false);
 });
 
 test('generatePlatforms is deterministic and has safe start/finish', () => {
