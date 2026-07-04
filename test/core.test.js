@@ -4,6 +4,9 @@ import {
   STAGES,
   STAGE_COUNT,
   getStage,
+  isStageUnlocked,
+  selectableStages,
+  nextHighestCleared,
   levelForXp,
   unlockedActions,
   isActionUnlocked,
@@ -29,6 +32,32 @@ test('getStage wraps around and stays in range', () => {
   assert.equal(getStage(-1).id, STAGES[STAGE_COUNT - 1].id);
 });
 
+test('isStageUnlocked allows cleared stages and the next stage only', () => {
+  assert.equal(isStageUnlocked(0, -1), true);
+  assert.equal(isStageUnlocked(1, -1), false);
+
+  assert.equal(isStageUnlocked(0, 1), true);
+  assert.equal(isStageUnlocked(1, 1), true);
+  assert.equal(isStageUnlocked(2, 1), true);
+  assert.equal(isStageUnlocked(3, 1), false);
+
+  assert.equal(isStageUnlocked(-1, 1), false);
+  assert.equal(isStageUnlocked(STAGE_COUNT, STAGE_COUNT - 1), false);
+});
+
+test('selectableStages returns unlocked stage indices clamped to stage count', () => {
+  assert.deepEqual(selectableStages(-1), [0]);
+  assert.deepEqual(selectableStages(0), [0, 1]);
+  assert.deepEqual(selectableStages(2), [0, 1, 2, 3]);
+  assert.deepEqual(selectableStages(STAGE_COUNT + 10), STAGES.map((_, index) => index));
+});
+
+test('nextHighestCleared advances only upward', () => {
+  assert.equal(nextHighestCleared(-1, 0), 0);
+  assert.equal(nextHighestCleared(1, 2), 2);
+  assert.equal(nextHighestCleared(3, 1), 3);
+});
+
 test('levelForXp progresses one level per stage and caps at MAX_LEVEL', () => {
   assert.equal(levelForXp(0), 1);
   assert.equal(levelForXp(XP_PER_STAGE - 1), 1);
@@ -45,6 +74,23 @@ test('actions unlock in the spec order as level rises', () => {
   assert.deepEqual(unlockedActions(5), ['jump', 'doubleJump', 'glide', 'dash', 'wallKick']);
   assert.equal(isActionUnlocked(1, 'doubleJump'), false);
   assert.equal(isActionUnlocked(2, 'doubleJump'), true);
+});
+
+test('progress-derived level unlocks actions without increasing on replay', () => {
+  const levelFromHighestCleared = (highestCleared) => levelForXp((highestCleared + 1) * XP_PER_STAGE);
+
+  let highestCleared = -1;
+  highestCleared = nextHighestCleared(highestCleared, 0);
+  assert.equal(levelFromHighestCleared(highestCleared), 2);
+  assert.deepEqual(unlockedActions(levelFromHighestCleared(highestCleared)), ['jump', 'doubleJump']);
+
+  highestCleared = nextHighestCleared(highestCleared, 0);
+  assert.equal(levelFromHighestCleared(highestCleared), 2);
+  assert.deepEqual(unlockedActions(levelFromHighestCleared(highestCleared)), ['jump', 'doubleJump']);
+
+  highestCleared = nextHighestCleared(highestCleared, 1);
+  assert.equal(levelFromHighestCleared(highestCleared), 3);
+  assert.deepEqual(unlockedActions(levelFromHighestCleared(highestCleared)), ['jump', 'doubleJump', 'glide']);
 });
 
 test('maxJumps is 1 until double jump unlocks, then 2', () => {

@@ -32,10 +32,60 @@
       image-rendering: pixelated;
       box-shadow: 0 10px 40px rgba(0,0,0,0.5);
     }
+    #stage[hidden] { display: none; }
+    .home {
+      width: min(96vw, 720px);
+      border: 1px solid #2b2e45;
+      border-radius: 12px;
+      background: #181a28;
+      box-shadow: 0 10px 40px rgba(0,0,0,0.35);
+      padding: 16px;
+    }
+    .home[hidden] { display: none; }
+    .home-head {
+      display: flex; justify-content: space-between; align-items: end;
+      gap: 12px; margin-bottom: 12px;
+    }
+    .home-title { margin: 0; font-size: 16px; font-weight: 700; }
+    .progress { color: #99a; font-size: 12px; white-space: nowrap; }
+    .stage-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
+      gap: 8px;
+    }
+    .stage-button {
+      min-height: 64px;
+      border: 1px solid #343854;
+      border-radius: 8px;
+      background: #23253a;
+      color: #e8eaf2;
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      justify-content: center;
+      gap: 4px;
+      padding: 10px 12px;
+      font: inherit;
+      text-align: left;
+      cursor: pointer;
+    }
+    .stage-button:hover { border-color: #2b7fff; }
+    .stage-button.cleared { border-color: #2c8a68; background: #1d332f; }
+    .stage-button.locked {
+      cursor: default;
+      color: #6b6f8c;
+      background: #171927;
+      border-color: #24263a;
+    }
+    .stage-button.locked:hover { border-color: #24263a; }
+    .stage-name { font-size: 15px; font-weight: 700; }
+    .stage-status { font-size: 11px; color: #99a; }
+    .cleared .stage-status { color: #7ee0b4; }
     .actions {
       display: flex; flex-wrap: wrap; gap: 6px; justify-content: center;
       max-width: min(96vw, 720px);
     }
+    .actions[hidden] { display: none; }
     .chip {
       font-size: 12px; padding: 4px 10px; border-radius: 999px;
       background: #23253a; color: #6b6f8c;
@@ -49,6 +99,13 @@
   <div class="wrap">
     <h1>Window Runner</h1>
     <p class="sub">乗り物の窓の外を走り抜けよう — タップだけで遊べる横スクロールアクション</p>
+    <section class="home" id="home" aria-label="ステージ選択">
+      <div class="home-head">
+        <p class="home-title">ステージ選択</p>
+        <span class="progress" id="progress"></span>
+      </div>
+      <div class="stage-grid" id="stageGrid"></div>
+    </section>
     <canvas id="stage" width="480" height="270" aria-label="Window Runner game"></canvas>
     <div class="actions" id="actions"></div>
     <p class="hint">
@@ -59,12 +116,40 @@
   <script type="module">
     import { createGame } from './src/game.js';
     const canvas = document.getElementById('stage');
+    const homeEl = document.getElementById('home');
+    const stageGrid = document.getElementById('stageGrid');
+    const progressEl = document.getElementById('progress');
     const actionsEl = document.getElementById('actions');
     const ALL = [
       ['jump', 'ジャンプ'], ['doubleJump', '二段ジャンプ'], ['glide', '滑空'],
       ['dash', 'ダッシュ'], ['wallKick', '壁キック'],
     ];
     const game = createGame(canvas, {
+      onHome({ stages, highestCleared }) {
+        homeEl.hidden = false;
+        canvas.hidden = true;
+        actionsEl.hidden = true;
+        progressEl.textContent = `クリア ${Math.max(0, highestCleared + 1)} / ${stages.length}`;
+        stageGrid.innerHTML = stages.map((stage) => {
+          const status = stage.cleared ? 'クリア済み' : stage.unlocked ? '挑戦可能' : 'ロック中';
+          const classes = ['stage-button', stage.cleared ? 'cleared' : '', stage.unlocked ? '' : 'locked']
+            .filter(Boolean)
+            .join(' ');
+          return `
+            <button class="${classes}" data-stage="${stage.index}" ${stage.unlocked ? '' : 'disabled'}>
+              <span class="stage-name">${stage.cleared ? '✓ ' : ''}${stage.index + 1}. ${stage.name}</span>
+              <span class="stage-status">${status}</span>
+            </button>
+          `;
+        }).join('');
+      },
+      onEvent(kind) {
+        if (kind === 'stageStart') {
+          homeEl.hidden = true;
+          canvas.hidden = false;
+          actionsEl.hidden = false;
+        }
+      },
       onFrame({ actions }) {
         if (actionsEl.dataset.sig === actions.join(',')) return;
         actionsEl.dataset.sig = actions.join(',');
@@ -72,6 +157,11 @@
           ([id, label]) => `<span class="chip ${actions.includes(id) ? 'on' : ''}">${label}</span>`,
         ).join('');
       },
+    });
+    stageGrid.addEventListener('click', (event) => {
+      const button = event.target.closest('button[data-stage]');
+      if (!button || button.disabled) return;
+      game.selectStage(Number(button.dataset.stage));
     });
     game.attachInput(canvas);
     game.start();
