@@ -1,0 +1,12 @@
+{
+  "name": "window-runner",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Tap-only horizontal side-scroller action game prototype — run past the world outside the window.",
+  "type": "module",
+  "scripts": {
+    "test": "node --test",
+    "start": "python3 -m http.server 8080"
+  },
+  "license": "UNLICENSED"
+}
