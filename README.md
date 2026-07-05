@@ -67,12 +67,16 @@ test/core.test.js Node 標準テスト
 
 ## 動作環境
 
-ビルド不要の静的 Web アプリで、外部依存パッケージはありません（`package.json` の `dependencies` なし）。
+外部依存パッケージはありません（`package.json` に `dependencies` なし、`"type": "module"` の
+純粋 ES モジュール構成）。
 
 | 項目 | 内容 |
 | --- | --- |
-| 実行 | ローカル HTTP サーバー経由で開く（`npm start` = `python3 -m http.server 8080` → http://localhost:8080）。ES モジュール読み込みのため `file://` 直開きは不可。 |
-| テスト | `npm test`（= `node --test`）で `test/core.test.js` を実行。 |
-| 必要ランタイム | 静的配信用に Python 3（`start` スクリプト。任意の HTTP サーバーで代替可）。テスト実行に Node.js（標準テストランナー `node --test` を使用）。 |
-| ブラウザ | ES モジュール（`"type": "module"`）と Canvas に対応したモダンブラウザ。 |
-| エントリポイント | `index.html`（Canvas + UI）から `src/game.js`（描画・ループ・入力）を読み込み、ロジックは `src/core.js`（純粋関数）。 |
+| ランタイム | Node.js（`npm test` = `node --test` は Node.js 18 以上の標準テストランナーを使用） |
+| ローカルサーバー | `npm start` = `python3 -m http.server 8080`（Python 3）。他の静的サーバーでも可 |
+| ブラウザ | ES モジュールと Canvas に対応したモダンブラウザ（`file://` では動かず、サーバー経由が必要） |
+| エントリポイント | `index.html`（Canvas + UI）。`src/game.js`（描画・入力・ループ）が `src/core.js`（純粋ロジック）を読み込む |
+| テスト | `test/core.test.js` を `node --test` で実行 |
+
+- 実行: `npm start` でローカルサーバーを起動し `http://localhost:8080` を開く（ビルド不要）。
+- テスト: `npm test`。
