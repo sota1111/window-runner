@@ -31,16 +31,6 @@ npm start        # http://localhost:8080 を開く
 python3 -m http.server 8080
 ```
 
-## 動作環境
-
-- ランタイム: Node.js（`npm test` の Node 標準テストランナー用）と Python 3（`npm start` の
-  `python3 -m http.server 8080` 用）が必要です。
-- モジュール形式: `package.json` は `"type": "module"` を指定しており、ブラウザ側の JavaScript は
-  ES モジュールとして読み込まれます。
-- エントリポイント: ブラウザで開く入口は `index.html`、ゲームの描画・入力・ループ処理は
-  `src/game.js` から開始します。
-- 実行方法: `npm start` でローカルサーバーを起動し、`http://localhost:8080` をブラウザで開きます。
-
 ## テスト
 
 ゲームのコアロジック（ステージ構成・レベル/経験値・地形生成・当たり判定・物理）は
@@ -74,3 +64,15 @@ test/core.test.js Node 標準テスト
 この開発環境（Linux）では iOS ネイティブのビルド・動作検証ができません。そのため、DoD をすべて
 満たしつつブラウザで実行・検証できる **HTML5 Canvas + JavaScript** の静的 Web プロトタイプとして
 実装しています。ネイティブ iOS（SpriteKit/Unity）版が必要な場合は、Mac / 実機環境で別途対応します。
+
+## 動作環境
+
+ビルドや外部依存パッケージは不要です（`package.json` に `dependencies` はありません）。
+
+| 用途 | 必要なもの | 補足 |
+| --- | --- | --- |
+| プレイ（実行） | ES モジュールと Canvas に対応したモダンブラウザ | エントリは `index.html`。`src/game.js` / `src/core.js` を ES モジュール（`import`）で読み込むため、`file://` では動作せず HTTP サーバー経由が必要です。 |
+| ローカルサーバー | Python 3 | `npm start`（= `python3 -m http.server 8080`）で `http://localhost:8080` を配信。任意の静的ファイルサーバーでも代用できます。 |
+| テスト | Node.js 18 以上 | `npm test`（= `node --test`）で Node 標準テストランナーが `test/core.test.js` を実行します。 |
+
+このリポジトリ自体は静的ファイル（`index.html` と `src/` 配下の ES モジュール）のみで構成され、OS は問いません。
