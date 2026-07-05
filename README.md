@@ -31,6 +31,16 @@ npm start        # http://localhost:8080 を開く
 python3 -m http.server 8080
 ```
 
+## 動作環境
+
+- ランタイム: Node.js（`npm test` の Node 標準テストランナー用）と Python 3（`npm start` の
+  `python3 -m http.server 8080` 用）が必要です。
+- モジュール形式: `package.json` は `"type": "module"` を指定しており、ブラウザ側の JavaScript は
+  ES モジュールとして読み込まれます。
+- エントリポイント: ブラウザで開く入口は `index.html`、ゲームの描画・入力・ループ処理は
+  `src/game.js` から開始します。
+- 実行方法: `npm start` でローカルサーバーを起動し、`http://localhost:8080` をブラウザで開きます。
+
 ## テスト
 
 ゲームのコアロジック（ステージ構成・レベル/経験値・地形生成・当たり判定・物理）は
