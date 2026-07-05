@@ -67,17 +67,17 @@ test/core.test.js Node 標準テスト
 
 ## 動作環境
 
-ビルドやバンドラは不要な、素の HTML / CSS / JavaScript（ES モジュール）で動作します。
+ビルドやバンドラは使わず、`index.html` を静的 Web サーバーから配信して動かす
+HTML5 Canvas + JavaScript（ES モジュール）のアプリです。
 
 | 項目 | 内容 |
 | --- | --- |
-| 実行 | 静的 Web サーバー経由でブラウザに `index.html` を表示（ES モジュール読み込みのため `file://` 直接開きは不可） |
-| ブラウザ | Canvas 2D と ES モジュールに対応した最新のモダンブラウザ |
-| Node.js | 18 以上（`npm test` = `node --test` の組み込みテストランナーを使用） |
-| Python | 3 系（`npm start` = `python3 -m http.server 8080` で開発サーバーを起動する場合） |
-| 依存パッケージ | なし（`package.json` に外部依存なし。`npm install` 不要） |
+| 実行ランタイム | Canvas 2D と ES モジュールに対応したモダンブラウザ |
+| 開発サーバー | Python 3（`npm start` が `python3 -m http.server 8080` を実行） |
+| テストランタイム | Node.js 18 以上（`npm test` が `node --test` を実行） |
+| 依存パッケージ | なし（外部 npm パッケージ不要） |
 
-- ゲーム本体（`index.html` + `src/`）はブラウザだけで動作し、Node.js / Python は不要です。
-- `npm start`（Python の簡易サーバー）は開発時に `index.html` を配信するための一手段で、
-  任意の静的 Web サーバーで代替できます。
-- `npm test`（`node --test`）でコアロジック（`src/core.js`）の単体テストを実行するときのみ Node.js が必要です。
+- 起動: `npm start` の後、`http://localhost:8080` をブラウザで開きます。
+- エントリポイント: ブラウザは `index.html` を読み込み、そこから `./src/game.js` を ES モジュールとして import します。
+- テスト: `npm test` で `test/core.test.js` を実行し、DOM 非依存のコアロジック `src/core.js` を検証します。
+- `file://` で直接開くと ES モジュール読み込みに失敗するため、任意の静的 Web サーバー経由で配信してください。
