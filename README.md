@@ -67,12 +67,13 @@ test/core.test.js Node 標準テスト
 
 ## 動作環境
 
-ビルドや外部依存パッケージは不要です（`package.json` に `dependencies` はありません）。
+ビルドツールや外部依存パッケージは不要です（`package.json` に `dependencies` はありません）。
 
 | 用途 | 必要なもの | 補足 |
 | --- | --- | --- |
-| プレイ（実行） | ES モジュールと Canvas に対応したモダンブラウザ | エントリは `index.html`。`src/game.js` / `src/core.js` を ES モジュール（`import`）で読み込むため、`file://` では動作せず HTTP サーバー経由が必要です。 |
-| ローカルサーバー | Python 3 | `npm start`（= `python3 -m http.server 8080`）で `http://localhost:8080` を配信。任意の静的ファイルサーバーでも代用できます。 |
-| テスト | Node.js 18 以上 | `npm test`（= `node --test`）で Node 標準テストランナーが `test/core.test.js` を実行します。 |
+| プレイ（実行） | ES モジュールと Canvas に対応したモダンブラウザ | エントリは `index.html`。`src/game.js` / `src/core.js` を ES モジュール（`import`）として読み込むため、`file://` では動作せず HTTP サーバー経由で開く必要があります。 |
+| ローカル配信 | Python 3 | `npm start`（= `python3 -m http.server 8080`）で `http://localhost:8080` に配信します。任意の静的ファイルサーバーでも代用できます。 |
+| テスト | Node.js（`node --test` 対応版, 18 以上） | `npm test`（= `node --test`）で Node 標準テストランナーが `test/core.test.js` を実行します。 |
 
-このリポジトリ自体は静的ファイル（`index.html` と `src/` 配下の ES モジュール）のみで構成され、OS は問いません。
+`package.json` は `"type": "module"` の純粋 ES モジュール構成です。リポジトリ本体は静的ファイル
+（`index.html` と `src/` 配下の ES モジュール）のみで、OS は問いません。
