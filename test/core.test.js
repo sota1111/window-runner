@@ -34,6 +34,10 @@ import {
   jumpApex,
   cliffRise,
   MAX_RISE,
+  CABIN_STYLES,
+  cabinStyle,
+  cabinOpening,
+  cabinOpeningContains,
 } from '../src/core.js';
 
 // Extract the gaps (uncovered spans) between consecutive platform segments.
@@ -409,4 +413,48 @@ test('resolveTap: jump on ground, double jump only when unlocked and available',
   assert.equal(resolveTap(2, { onGround: false, jumpsUsed: 1 }), 'doubleJump');
   // No third jump.
   assert.equal(resolveTap(2, { onGround: false, jumpsUsed: 2 }), null);
+});
+
+// --- Cabin interior overlay -------------------------------------------------
+// On-screen gameplay constants mirrored from game.js.
+const CANVAS_W = 480;
+const CANVAS_H = 270;
+const PLAYER_X = 120;   // player's fixed on-screen x
+const GROUND_Y = 200;   // ground line (player's feet on flat terrain)
+
+test('cabinStyle returns a style for every stage and falls back to walk', () => {
+  for (const stage of STAGES) {
+    const s = cabinStyle(stage.id);
+    assert.ok(s, `stage ${stage.id} has a cabin style`);
+    assert.ok(s.top > 0 && s.side > 0 && s.bottom > 0, 'wall thicknesses are positive');
+    // Bottom wall (interior console) is the thickest so the "sitting inside"
+    // read comes from below the window.
+    assert.ok(s.bottom >= s.top, `${stage.id}: bottom wall is the deepest`);
+  }
+  assert.equal(cabinStyle('unknown-stage'), CABIN_STYLES.walk, 'unknown -> walk default');
+});
+
+test('cabinOpening clamps the corner radius to half the smaller side', () => {
+  for (const stage of STAGES) {
+    const o = cabinOpening(stage.id, CANVAS_W, CANVAS_H);
+    assert.ok(o.w > 0 && o.h > 0, `${stage.id}: opening has area`);
+    assert.ok(o.radius <= o.w / 2 + 1e-9 && o.radius <= o.h / 2 + 1e-9,
+      `${stage.id}: radius never exceeds half the smaller side`);
+  }
+});
+
+test('every stage window keeps the gameplay column (player x / ground line) inside the glass', () => {
+  // The whole point of "looking out from inside": the cabin walls must never
+  // hide where the game is actually played — the player column at x≈120 and the
+  // ground line at y≈200 must sit inside the opening for all stages, with margin.
+  for (const stage of STAGES) {
+    const o = cabinOpening(stage.id, CANVAS_W, CANVAS_H);
+    assert.ok(cabinOpeningContains(stage.id, PLAYER_X, GROUND_Y, CANVAS_W, CANVAS_H),
+      `${stage.id}: player/ground point is inside the window`);
+    // Player body (±10px) and a little air above the ground line stay visible.
+    assert.ok(o.x <= PLAYER_X - 10, `${stage.id}: player left edge visible`);
+    assert.ok(o.x + o.w >= PLAYER_X + 10, `${stage.id}: player right edge visible`);
+    assert.ok(o.y + o.h > GROUND_Y, `${stage.id}: ground line is above the console wall`);
+    assert.ok(o.y < 40, `${stage.id}: window opens high enough for jump apex`);
+  }
 });

@@ -12,6 +12,8 @@ import {
   isIntroActive,
   introPhase,
   boardingProgress,
+  cabinStyle,
+  cabinOpening,
   generatePlatforms,
   segmentIndexAt,
   stepVelocity,
@@ -658,16 +660,19 @@ export function createGame(canvas, ui = {}) {
     ctx.closePath();
   }
 
+  // The "inside a vehicle looking out" cabin overlay. A thick, asymmetric cabin
+  // wall encloses the play scene (window opening geometry comes from core.js);
+  // the bottom wall carries a stage-specific interior (dashboard / seats /
+  // control console), and a vignette + glass sheen sell the enclosed cabin.
+  // Gameplay is untouched: the opening always spans the player/ground column.
   function drawWindowFrame(stage, options = {}) {
-    const frame = 17;
-    const radius = 18;
-    const innerX = frame;
-    const innerY = frame + 1;
-    const innerW = WIDTH - frame * 2;
-    const innerH = HEIGHT - frame * 2 - 2;
-    const frameColor = shade(stage.ground, -0.58);
-    const frameEdge = shade(stage.ground, -0.78);
-    const sillColor = shade(stage.ground, 0.25);
+    const opening = cabinOpening(stage.id, WIDTH, HEIGHT);
+    const style = cabinStyle(stage.id);
+    const { x: ox, y: oy, w: ow, h: oh, radius } = opening;
+    const wallLight = shade(stage.ground, -0.42);
+    const wallColor = shade(stage.ground, -0.62);
+    const wallDark = shade(stage.ground, -0.8);
+    const trim = shade(stage.ground, 0.2);
     const progress = options.progress ?? 1;
     const scale = options.scale ?? 1;
     const alpha = options.alpha ?? 1;
@@ -679,32 +684,41 @@ export function createGame(canvas, ui = {}) {
       ctx.scale(scale, scale);
       ctx.translate(-WIDTH / 2, -HEIGHT / 2);
     }
+
+    // 1) Cabin walls: fill everything, punch out the window with even-odd.
     ctx.beginPath();
     ctx.rect(0, 0, WIDTH, HEIGHT);
-    roundedRectPath(innerX, innerY, innerW, innerH, radius, false);
-    ctx.fillStyle = frameColor;
+    roundedRectPath(ox, oy, ow, oh, radius, false);
+    const wallGrad = ctx.createLinearGradient(0, 0, 0, HEIGHT);
+    wallGrad.addColorStop(0, wallLight);
+    wallGrad.addColorStop(0.55, wallColor);
+    wallGrad.addColorStop(1, wallDark);
+    ctx.fillStyle = wallGrad;
     ctx.fill('evenodd');
 
-    ctx.lineWidth = 3;
-    ctx.strokeStyle = frameEdge;
-    roundedRectPath(innerX + 1.5, innerY + 1.5, innerW - 3, innerH - 3, radius - 2);
-    ctx.stroke();
+    // 2) Interior console (dashboard/seats/panel) on the lower cabin wall.
+    drawCabinConsole(stage, style, opening);
 
+    // 3) Window bevel: a dark outer lip + a bright inner sill for depth.
+    ctx.lineWidth = 4;
+    ctx.strokeStyle = wallDark;
+    roundedRectPath(ox + 2, oy + 2, ow - 4, oh - 4, Math.max(0, radius - 2));
+    ctx.stroke();
     ctx.lineWidth = 2;
-    ctx.strokeStyle = sillColor;
-    roundedRectPath(innerX + 5, innerY + 5, innerW - 10, innerH - 10, radius - 5);
+    ctx.strokeStyle = trim;
+    roundedRectPath(ox + 6, oy + 6, ow - 12, oh - 12, Math.max(0, radius - 5));
     ctx.stroke();
 
-    roundedRectPath(innerX + 3, innerY + 3, innerW - 6, innerH - 6, radius - 4);
+    // 4) Glass sheen + edge vignette, clipped to the opening.
+    ctx.save();
+    roundedRectPath(ox + 3, oy + 3, ow - 6, oh - 6, Math.max(0, radius - 4));
     ctx.clip();
-
     const glass = ctx.createLinearGradient(0, 0, WIDTH, HEIGHT);
-    glass.addColorStop(0, 'rgba(255,255,255,0.22)');
+    glass.addColorStop(0, 'rgba(255,255,255,0.20)');
     glass.addColorStop(0.18, 'rgba(255,255,255,0.05)');
     glass.addColorStop(0.42, 'rgba(255,255,255,0)');
     ctx.fillStyle = glass;
     ctx.fillRect(0, 0, WIDTH, HEIGHT);
-
     ctx.fillStyle = `rgba(255,255,255,${0.08 + progress * 0.08})`;
     ctx.beginPath();
     ctx.moveTo(58, 20);
@@ -713,6 +727,93 @@ export function createGame(canvas, ui = {}) {
     ctx.lineTo(254, HEIGHT - 20);
     ctx.closePath();
     ctx.fill();
+    // Enclosed-cabin vignette: darken toward the window edges.
+    const vign = ctx.createRadialGradient(
+      WIDTH / 2, HEIGHT * 0.46, HEIGHT * 0.26,
+      WIDTH / 2, HEIGHT * 0.46, WIDTH * 0.6,
+    );
+    vign.addColorStop(0, 'rgba(0,0,0,0)');
+    vign.addColorStop(1, 'rgba(0,0,0,0.3)');
+    ctx.fillStyle = vign;
+    ctx.fillRect(0, 0, WIDTH, HEIGHT);
+    ctx.restore();
+
+    ctx.restore();
+  }
+
+  // Interior detail on the lower cabin wall (below the window opening). Drawn on
+  // the already-filled wall band [openingBottom, HEIGHT], clipped to that band
+  // so nothing spills over the glass. Sits entirely below the ground line, so it
+  // never hides the player or the terrain edges the player jumps between.
+  function drawCabinConsole(stage, style, opening) {
+    const top = opening.y + opening.h; // top of the lower cabin wall
+    const left = opening.x;
+    const right = opening.x + opening.w;
+    const w = opening.w;
+    const bandH = HEIGHT - top;
+    const midX = WIDTH / 2;
+    const detail = shade(stage.ground, -0.72);
+    const lip = shade(stage.ground, -0.3);
+
+    // Window sill / console lip along the bottom edge of the glass.
+    ctx.fillStyle = lip;
+    ctx.fillRect(left, top, w, 5);
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(left, top + 5, w, bandH - 5);
+    ctx.clip();
+
+    if (style.console === 'dashboard') {
+      // Car: steering wheel arc peeking up + two instrument dials.
+      ctx.strokeStyle = detail;
+      ctx.lineWidth = 5;
+      ctx.beginPath();
+      ctx.arc(midX + 46, top + bandH + 8, 40, Math.PI, Math.PI * 2);
+      ctx.stroke();
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.moveTo(midX + 46, top + bandH + 8);
+      ctx.lineTo(midX + 46, top + 14);
+      ctx.stroke();
+      for (const dx of [left + 40, left + 82]) {
+        ctx.fillStyle = detail;
+        ctx.beginPath();
+        ctx.arc(dx, top + 24, 12, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = stage.accent;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(dx, top + 24);
+        ctx.lineTo(dx + 7, top + 17);
+        ctx.stroke();
+      }
+    } else if (style.console === 'console') {
+      // Space: a lit control screen + a row of glowing buttons.
+      ctx.fillStyle = detail;
+      ctx.fillRect(left + 12, top + 12, 100, 24);
+      ctx.fillStyle = shade(stage.accent, -0.1);
+      ctx.fillRect(left + 16, top + 16, 92, 16);
+      const cols = ['#6ee7ff', '#f5d76e', '#ff7ab0', '#8affc1'];
+      for (let i = 0; i < 8; i += 1) {
+        ctx.fillStyle = cols[i % cols.length];
+        ctx.beginPath();
+        ctx.arc(midX + 20 + i * 20, top + 26, 4.5, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    } else {
+      // Seats: headrests of the seat row in front (train / bus / plane cabin).
+      ctx.fillStyle = detail;
+      for (let x = left + 12; x < right - 30; x += 82) {
+        roundedRectPath(x, top + 12, 58, bandH, 10);
+        ctx.fill();
+      }
+      ctx.fillStyle = shade(stage.ground, -0.58);
+      for (let x = left + 12; x < right - 30; x += 82) {
+        roundedRectPath(x + 10, top + 20, 38, bandH, 8);
+        ctx.fill();
+      }
+    }
     ctx.restore();
   }
 

@@ -40,6 +40,51 @@ export function boardingProgress(introT) {
   return Math.max(0, Math.min(1, (INTRO_BOARDING_FRAMES - introT) / INTRO_BOARDING_FRAMES));
 }
 
+// --- Cabin interior overlay (乗り物の中から外を覗く画面) ---------------------
+// The play scene is framed as the view THROUGH a vehicle's window from inside
+// the cabin. Each stage has its own interior: an asymmetric window opening
+// (thicker wall at the bottom = dashboard/seat/console) plus a corner radius
+// (airplane/space get rounder "porthole" windows). Pure geometry only — the
+// renderer in game.js maps these to canvas draws and stage-derived colors.
+//
+// The framing is deliberately asymmetric so the whole GAMEPLAY column stays
+// inside the glass: the player sits at screen-x ≈ 120 and the ground line at
+// y ≈ 200, so the opening always spans well past those. Only decorative cabin
+// walls live outside the opening — they never occlude the play field.
+export const CABIN_STYLES = {
+  walk:       { top: 20, side: 22, bottom: 44, radius: 20, console: 'seats' },
+  car:        { top: 20, side: 24, bottom: 48, radius: 18, console: 'dashboard' },
+  train:      { top: 20, side: 24, bottom: 44, radius: 14, console: 'seats' },
+  shinkansen: { top: 20, side: 26, bottom: 46, radius: 16, console: 'seats' },
+  airplane:   { top: 22, side: 30, bottom: 42, radius: 40, console: 'seats' },
+  space:      { top: 24, side: 32, bottom: 46, radius: 60, console: 'console' },
+};
+
+export function cabinStyle(stageId) {
+  return CABIN_STYLES[stageId] || CABIN_STYLES.walk;
+}
+
+// Window opening rectangle (the glass the outside world is seen through) for a
+// stage, given the canvas size. The corner radius is clamped so it never
+// exceeds half the smaller side (a degenerate rounded rect).
+export function cabinOpening(stageId, width, height) {
+  const s = cabinStyle(stageId);
+  const x = s.side;
+  const y = s.top;
+  const w = width - s.side * 2;
+  const h = height - s.top - s.bottom;
+  const radius = Math.max(0, Math.min(s.radius, w / 2, h / 2));
+  return { x, y, w, h, radius };
+}
+
+// True when the point (px, py) lies inside a stage's window opening — used to
+// assert the gameplay column (player x / ground line y) is never hidden by the
+// cabin walls. Ignores corner rounding (a conservative rectangular test).
+export function cabinOpeningContains(stageId, px, py, width, height) {
+  const o = cabinOpening(stageId, width, height);
+  return px >= o.x && px <= o.x + o.w && py >= o.y && py <= o.y + o.h;
+}
+
 export function isStageUnlocked(stageIndex, highestCleared) {
   const cleared = Math.max(-1, highestCleared);
   return Number.isInteger(stageIndex) && stageIndex >= 0 && stageIndex < STAGE_COUNT && stageIndex <= cleared + 1;
