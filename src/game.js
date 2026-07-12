@@ -13,7 +13,7 @@ import {
   introPhase,
   boardingProgress,
   generatePlatforms,
-  isOnSolid,
+  segmentIndexAt,
   stepVelocity,
   resolveTap,
   maxJumps,
@@ -61,6 +61,8 @@ export function createGame(canvas, ui = {}) {
     dead: false,
     cleared: false,
     segments: [],
+    lastSegId: 0,  // platform the player was last over (for cliff-face collision)
+    lastRise: 0,   // elevation of that platform
     bgOffset: 0,
     animT: 0,
     introT: 0,
@@ -137,6 +139,8 @@ export function createGame(canvas, ui = {}) {
     state.dead = false;
     state.cleared = false;
     state.segments = generatePlatforms(index, STAGE_LENGTH, 777 + index, state.level);
+    state.lastSegId = 0;
+    state.lastRise = 0;
     state.bgOffset = 0;
     state.animT = 0;
     state.introT = INTRO_FRAMES;
@@ -207,34 +211,60 @@ export function createGame(canvas, ui = {}) {
     state.worldX += speed;
     state.bgOffset = (state.bgOffset + stage.bgSpeed) % 10000;
 
-    // Vertical physics.
+    // Vertical physics. `prevY` is the foot height BEFORE this frame's gravity —
+    // used to tell "descended onto a cliff top" from "smacked into its face".
+    const prevY = state.playerY;
     state.vy = stepVelocity(state.vy, stage.gravity, state.gliding);
     state.playerY += state.vy;
 
     const footX = state.worldX + PLAYER_X;
-    const overSolid = isOnSolid(state.segments, footX);
+    const segId = segmentIndexAt(state.segments, footX);
+    const overSolid = segId >= 0;
+    const surfaceY = overSolid ? GROUND_Y - (state.segments[segId].rise || 0) : GROUND_Y;
 
-    if (state.playerY >= GROUND_Y) {
-      if (overSolid) {
-        // Land on platform.
-        state.playerY = GROUND_Y;
+    if (overSolid) {
+      // Cliff-face collision: entering a NEW, higher platform whose ledge the
+      // player's feet passed below → they hit the wall instead of landing on
+      // top. We interpolate the foot height at exactly the ledge x (the corner)
+      // so a jump that just clears it isn't wrongly killed a frame early.
+      if (segId !== state.lastSegId) {
+        const rise = state.segments[segId].rise || 0;
+        if (rise > state.lastRise) {
+          const segStart = state.segments[segId].start;
+          const frac = speed > 0 ? Math.max(0, Math.min(1, (segStart - (footX - speed)) / speed)) : 1;
+          const yAtCorner = prevY + frac * (state.playerY - prevY);
+          if (yAtCorner > surfaceY + 1) {
+            state.dead = true;
+            state.running = false;
+            state.message = 'ミス！ タップでリトライ';
+            report('dead');
+            return;
+          }
+        }
+        state.lastSegId = segId;
+        state.lastRise = rise;
+      }
+      if (state.playerY >= surfaceY) {
+        // Land on the platform surface (which may be elevated).
+        state.playerY = surfaceY;
         state.vy = 0;
         state.onGround = true;
         state.jumpsUsed = 0;
         state.gliding = false;
       } else {
-        // Over a gap and at/below surface → keep falling (miss).
+        // Airborne above the platform.
         state.onGround = false;
-        if (state.playerY > HEIGHT + 60) {
-          state.dead = true;
-          state.running = false;
-          state.message = 'ミス！ タップでリトライ';
-          report('dead');
-          return;
-        }
       }
     } else {
+      // Over a gap → keep falling (miss once well below the screen).
       state.onGround = false;
+      if (state.playerY > HEIGHT + 60) {
+        state.dead = true;
+        state.running = false;
+        state.message = 'ミス！ タップでリトライ';
+        report('dead');
+        return;
+      }
     }
 
     // Reached the end of the stage → clear + level up.
@@ -473,21 +503,31 @@ export function createGame(canvas, ui = {}) {
   }
 
   function drawTerrain(stage) {
-    ctx.fillStyle = stage.ground;
     for (const seg of state.segments) {
       const sx = seg.start - state.worldX;
       const ex = seg.end - state.worldX;
       if (ex < 0 || sx > WIDTH) continue;
-      ctx.fillRect(sx, GROUND_Y + PLAYER_SIZE, ex - sx, HEIGHT - GROUND_Y);
+      const width = ex - sx;
+      const rise = seg.rise || 0;
+      const top = GROUND_Y - rise + PLAYER_SIZE; // surface of this (maybe raised) platform
+      // Platform body (extends to the bottom so a raised platform reads as a cliff).
+      ctx.fillStyle = stage.ground;
+      ctx.fillRect(sx, top, width, HEIGHT - top);
+      // Cliff-face shading down the front edge of a raised platform.
+      if (rise > 0) {
+        ctx.fillStyle = shade(stage.ground, -0.22);
+        ctx.fillRect(sx, top, Math.min(6, width), HEIGHT - top);
+      }
+      // Surface highlight line.
       ctx.fillStyle = shade(stage.ground, 0.15);
-      ctx.fillRect(sx, GROUND_Y + PLAYER_SIZE, ex - sx, 4);
-      drawStageStructure(stage, sx, ex - sx);
+      ctx.fillRect(sx, top, width, 4);
+      drawStageStructure(stage, sx, width, top);
       ctx.fillStyle = stage.ground;
     }
   }
 
-  function drawStageStructure(stage, sx, width) {
-    const top = GROUND_Y + PLAYER_SIZE;
+  function drawStageStructure(stage, sx, width, topY = GROUND_Y + PLAYER_SIZE) {
+    const top = topY;
     if (stage.structure === 'promenade') {
       ctx.fillStyle = shade(stage.ground, 0.28);
       for (let x = sx + 10; x < sx + width; x += 34) {
