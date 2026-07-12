@@ -20,6 +20,8 @@ import {
   boardingProgress,
   generatePlatforms,
   isOnSolid,
+  segmentIndexAt,
+  surfaceRiseAt,
   stepVelocity,
   resolveTap,
   MAX_LEVEL,
@@ -28,17 +30,54 @@ import {
   gapCrossFactor,
   maxCrossableGap,
   requiredActionForLevel,
+  JUMP_VELOCITY,
+  jumpApex,
+  cliffRise,
+  MAX_RISE,
 } from '../src/core.js';
 
 // Extract the gaps (uncovered spans) between consecutive platform segments.
+// Each gap also carries the elevation change across it: a "cliff" transition
+// steps the platform up/down (rise changes), a "flat" one keeps the same height.
 function gapsOf(segments) {
   const gaps = [];
   for (let i = 1; i < segments.length; i++) {
     const prevEnd = segments[i - 1].end;
     const start = segments[i].start;
-    if (start > prevEnd) gaps.push({ start: prevEnd, width: start - prevEnd, mid: (prevEnd + start) / 2 });
+    if (start > prevEnd) {
+      const riseFrom = segments[i - 1].rise || 0;
+      const riseTo = segments[i].rise || 0;
+      gaps.push({
+        start: prevEnd,
+        width: start - prevEnd,
+        mid: (prevEnd + start) / 2,
+        riseFrom,
+        riseTo,
+        isCliff: riseTo !== riseFrom,
+      });
+    }
   }
   return gaps;
+}
+
+// Peak height (px) a jump rises above launch, simulated with the real physics
+// (stepVelocity + JUMP_VELOCITY). With doubleJump, a second jump fires at apex.
+function peakRise(gravity, { doubleJump = false } = {}) {
+  let vy = JUMP_VELOCITY;
+  let y = 0; // feet offset; up is negative
+  let peak = 0;
+  let dj = doubleJump;
+  for (let i = 0; i < 600; i++) {
+    if (dj && vy >= 0) {
+      vy = JUMP_VELOCITY * 0.92; // second jump at the apex of the first
+      dj = false;
+    }
+    vy = stepVelocity(vy, gravity);
+    y += vy;
+    if (y < peak) peak = y;
+    if (y > 5 && vy > 0) break; // returned to/under the launch height
+  }
+  return -peak;
 }
 
 test('at least 3 stages exist (DoD: 最低3ステージ)', () => {
@@ -216,9 +255,12 @@ test('generatePlatforms scales latter-half difficulty by level (forces the new a
 
       const prevCap = maxCrossableGap(stageIndex, level - 1);
       const curCap = maxCrossableGap(stageIndex, level);
-      const latterGaps = gapsOf(segs).filter((g) => g.mid >= length * 0.5);
-      assert.ok(latterGaps.length > 0, 'latter half must contain gaps');
-      for (const g of latterGaps) {
+      // The action-forcing invariant applies to the FLAT (wide-gap) latter
+      // transitions; cliff transitions trade gap width for height (checked
+      // separately below).
+      const flatLatter = gapsOf(segs).filter((g) => g.start >= length * 0.5 && !g.isCliff);
+      assert.ok(flatLatter.length > 0, 'latter half must contain wide-gap transitions');
+      for (const g of flatLatter) {
         // Too wide for the previous level's actions -> the new action is required.
         assert.ok(g.width > prevCap, `gap ${g.width} must exceed prev-level reach ${prevCap}`);
         // But still within the current level's reach -> beatable.
@@ -251,6 +293,89 @@ test('generatePlatforms default level keeps every gap single-jump crossable', ()
   for (const g of gapsOf(segs)) {
     assert.ok(g.width <= cap, `level-1 gap ${g.width} must be <= single-jump reach ${cap}`);
   }
+});
+
+test('cliffRise is 0 before double jump, then scales with level within jump budget', () => {
+  for (let s = 0; s < STAGE_COUNT; s++) {
+    // No cliffs at level 1 (single jump only) — keeps the first stage fair.
+    assert.equal(cliffRise(s, 1), 0);
+    let prev = 0;
+    for (let l = 2; l <= MAX_LEVEL; l++) {
+      const h = cliffRise(s, l);
+      assert.ok(h > 0, `stage ${s} level ${l} must have a cliff`);
+      assert.ok(h >= prev, `cliff must not shrink as level rises (${l})`);
+      // On-screen and always within a single jump's apex (=> a double jump,
+      // unlocked at level 2, clears it comfortably).
+      assert.ok(h <= MAX_RISE + 1e-9, `cliff ${h} must stay <= MAX_RISE`);
+      assert.ok(h <= jumpApex(s) * 1.05 + 1e-9, `cliff ${h} must stay within jump apex`);
+      prev = h;
+    }
+  }
+});
+
+test('a double jump can always mount the tallest generated cliff (beatable)', () => {
+  for (let s = 0; s < STAGE_COUNT; s++) {
+    const gravity = getStage(s).gravity;
+    const reach = peakRise(gravity, { doubleJump: true });
+    for (let l = 2; l <= MAX_LEVEL; l++) {
+      const h = cliffRise(s, l);
+      assert.ok(reach >= h + 8, `stage ${s} level ${l}: double-jump reach ${reach.toFixed(1)} must clear cliff ${h.toFixed(1)}`);
+    }
+  }
+});
+
+test('generatePlatforms adds level-scaled latter-half cliffs, first half stays flat', () => {
+  const length = 4200;
+  for (const stageIndex of [0, 1, 2]) {
+    for (const level of [2, 3, 4]) {
+      const segs = generatePlatforms(stageIndex, length, 777, level);
+      // Deterministic including the new rise field.
+      assert.deepEqual(segs, generatePlatforms(stageIndex, length, 777, level));
+
+      // First half (and start/finish) is flat ground.
+      assert.equal(segs[0].rise, 0);
+      assert.equal(segs[segs.length - 1].rise, 0);
+      for (const seg of segs) {
+        const midX = (seg.start + seg.end) / 2;
+        if (midX < length * 0.5) assert.equal(seg.rise, 0, 'first-half platforms must be flat');
+        // Every rise is exactly the level's cliff height or ground.
+        assert.ok(seg.rise === 0 || Math.abs(seg.rise - cliffRise(stageIndex, level)) < 1e-9);
+      }
+
+      // The latter half raises at least one platform into a cliff.
+      const cliffs = gapsOf(segs).filter((g) => g.isCliff && g.start >= length * 0.5);
+      assert.ok(cliffs.length > 0, `stage ${stageIndex} level ${level} must have latter-half cliffs`);
+    }
+  }
+});
+
+test('every stage gets at least one latter-half cliff at level 2+', () => {
+  for (let s = 0; s < STAGE_COUNT; s++) {
+    for (let l = 2; l <= MAX_LEVEL; l++) {
+      const segs = generatePlatforms(s, 4200, 777 + s, l);
+      const cliffs = segs.filter((seg) => (seg.rise || 0) > 0);
+      assert.ok(cliffs.length > 0, `stage ${s} level ${l} must show 高低差`);
+    }
+  }
+});
+
+test('higher levels produce taller cliffs on a stage (until capped)', () => {
+  const h2 = cliffRise(0, 2);
+  const h5 = cliffRise(0, 5);
+  assert.ok(h5 > h2, 'level 5 cliffs must be taller than level 2 on stage 0');
+});
+
+test('segmentIndexAt and surfaceRiseAt read platform elevation, null over gaps', () => {
+  const segs = [
+    { start: 0, end: 100, rise: 0 },
+    { start: 200, end: 300, rise: 40 },
+  ];
+  assert.equal(segmentIndexAt(segs, 50), 0);
+  assert.equal(segmentIndexAt(segs, 150), -1); // gap
+  assert.equal(segmentIndexAt(segs, 250), 1);
+  assert.equal(surfaceRiseAt(segs, 50), 0);
+  assert.equal(surfaceRiseAt(segs, 150), null); // over a gap
+  assert.equal(surfaceRiseAt(segs, 250), 40);
 });
 
 test('isOnSolid detects gaps between segments', () => {

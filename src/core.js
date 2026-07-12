@@ -133,6 +133,14 @@ export function jumpReach(stageIndex) {
   return stage.scrollSpeed * airTime;
 }
 
+// Peak height (world px) a single jump rises above its launch point:
+// apex = v0^2 / (2g). Used to size cliffs so every step-up stays within what a
+// jump can climb (a double jump climbs ~1.85x this).
+export function jumpApex(stageIndex) {
+  const stage = getStage(stageIndex);
+  return (JUMP_VELOCITY * JUMP_VELOCITY) / (2 * stage.gravity);
+}
+
 // --- Difficulty scaling by level -------------------------------------------
 // As the player levels up, the LATTER HALF of a stage gets harder: gaps widen
 // beyond what the previous level's actions could cross, so clearing them
@@ -169,6 +177,46 @@ export function requiredActionForLevel(level) {
   return ACTION_ORDER.find((a) => ACTION_UNLOCK_LEVEL[a] === level) || null;
 }
 
+// --- Elevation / cliffs (高低差) --------------------------------------------
+// As the player levels up, the LATTER HALF also gains vertical challenge: some
+// landing platforms are raised into cliffs. The cliff gets taller with level
+// (harder timing / air control) but is always kept both:
+//   (a) within a double jump's climb (so it stays beatable — the double jump
+//       unlocks at Lv.2, exactly when cliffs start appearing), and
+//   (b) below MAX_RISE, so the player never leaves the top of the screen.
+// Cliffs complement the widening gaps (which force each level's traversal
+// action); missing a cliff — not reaching its top — is a miss.
+export const MAX_RISE = 104; // tallest cliff (screen px); keeps the player on-screen
+
+// CLIFF_RAMP[level] scales the cliff height as a fraction of a single jump's
+// apex. Monotonic in level so higher levels get taller cliffs. Values stay
+// <= ~1.05 apex — comfortably inside a double jump's ~1.85 apex reach — so a
+// cliff is always mountable once the double jump is unlocked (Lv.2+).
+export const CLIFF_RAMP = {
+  0: 0,
+  1: 0, // single jump only: keep the first stage flat & fair
+  2: 0.72,
+  3: 0.84,
+  4: 0.95,
+  5: 1.05,
+};
+
+export function cliffRamp(level) {
+  const l = Math.max(0, Math.min(MAX_LEVEL, Math.floor(level)));
+  return CLIFF_RAMP[l];
+}
+
+// Height (world/screen px) of a latter-half cliff on a stage at a given level.
+// 0 before the double jump unlocks; otherwise apex-scaled, capped by both the
+// double-jump climb budget and MAX_RISE so it is always beatable and on-screen.
+export function cliffRise(stageIndex, level) {
+  const lvl = Math.max(0, Math.min(MAX_LEVEL, Math.floor(level)));
+  if (lvl < 2) return 0;
+  const apex = jumpApex(stageIndex);
+  const raw = apex * cliffRamp(lvl);
+  return Math.min(raw, apex * 1.05, MAX_RISE);
+}
+
 // Build platform segments in world-space for a stage.
 // Returns an array of { start, end } (end exclusive), covering [0, length).
 // The first and last segments are always solid landing zones. The FIRST half is
@@ -188,17 +236,42 @@ export function generatePlatforms(stageIndex, length = 4000, seed = 12345, level
   const lvl = Math.max(1, Math.min(MAX_LEVEL, Math.floor(level)));
   const hardMinGap = maxCrossableGap(stageIndex, lvl - 1) * 1.03;
   const hardMaxGap = maxCrossableGap(stageIndex, lvl) * 0.95;
+  // Cliff (高低差) height for the latter half at this level (0 before Lv.2).
+  const cliffH = cliffRise(stageIndex, lvl);
   const midpoint = length * 0.5;
   const minPlat = 190; // guaranteed landing width after each gap
   const segments = [];
   const startLen = 420; // guaranteed safe start
-  segments.push({ start: 0, end: startLen });
+  segments.push({ start: 0, end: startLen, rise: 0 });
   let x = startLen;
+  let rise = 0; // current platform elevation
+  let sawLatter = false; // have we started the latter half yet?
   const endSafe = length - 360; // guaranteed safe finish
   while (x < endSafe) {
     const latter = x >= midpoint;
-    let lo = latter ? hardMinGap : easyMinGap;
-    let hi = latter ? hardMaxGap : easyMaxGap;
+    const firstLatter = latter && !sawLatter;
+    if (latter) sawLatter = true;
+    // A latter-half transition is either a CLIFF (small gap + step the platform
+    // up/down = 高低差) or a WIDE GAP (flat, forces the level's action). The two
+    // challenges are never stacked, so each stays within one jump's budget. The
+    // first latter transition is always a cliff so every stage shows 高低差.
+    const cliffTransition = latter && cliffH > 0 && (firstLatter || rng() < 0.5);
+    let lo;
+    let hi;
+    let nextRise = rise;
+    if (cliffTransition) {
+      lo = easyMinGap;
+      hi = easyMaxGap;
+      nextRise = rise > 0 ? 0 : cliffH; // alternate: climb up, then drop back down
+    } else if (latter) {
+      lo = hardMinGap;
+      hi = hardMaxGap;
+      nextRise = rise; // horizontal-only challenge -> keep the same height
+    } else {
+      lo = easyMinGap;
+      hi = easyMaxGap;
+      nextRise = 0; // first half stays flat & fair
+    }
     if (hi < lo) hi = lo; // degenerate guard (e.g. level 1 latter half)
     const gap = lo + rng() * (hi - lo);
     const plat = minPlat + Math.floor(rng() * 200);
@@ -207,21 +280,43 @@ export function generatePlatforms(stageIndex, length = 4000, seed = 12345, level
     if (x + gap + minPlat > endSafe) break;
     const platStart = x + gap;
     const platEnd = platStart + plat;
-    segments.push({ start: platStart, end: platEnd });
+    segments.push({ start: platStart, end: platEnd, rise: nextRise });
+    rise = nextRise;
     x = platEnd;
     // (x_prev .. platStart is intentionally left uncovered = the gap)
   }
-  // Extend the final platform through the guaranteed safe finish zone.
-  segments[segments.length - 1].end = length;
+  // Guarantee a flat, ground-level safe finish. If the last platform is a
+  // cliff, append a lower finish platform (a trivial step-down over an easy gap)
+  // rather than flattening the cliff in place — flattening would leave an
+  // easy-gap transition masquerading as a wide-gap one.
+  const last = segments[segments.length - 1];
+  if ((last.rise || 0) !== 0) {
+    const finishStart = Math.min(last.end + easyMinGap, length - 1);
+    segments.push({ start: finishStart, end: length, rise: 0 });
+  } else {
+    last.end = length;
+  }
   return segments;
+}
+
+// Index of the platform segment covering world-x, or -1 if x is over a gap.
+export function segmentIndexAt(segments, x) {
+  for (let i = 0; i < segments.length; i++) {
+    const s = segments[i];
+    if (x >= s.start && x < s.end) return i;
+  }
+  return -1;
+}
+
+// Elevation (rise, px) of the platform under world-x, or null if over a gap.
+export function surfaceRiseAt(segments, x) {
+  const i = segmentIndexAt(segments, x);
+  return i < 0 ? null : segments[i].rise || 0;
 }
 
 // Is world-x over solid ground (true) or over a gap (false)?
 export function isOnSolid(segments, x) {
-  for (const s of segments) {
-    if (x >= s.start && x < s.end) return true;
-  }
-  return false;
+  return segmentIndexAt(segments, x) >= 0;
 }
 
 // --- Jump / glide physics --------------------------------------------------
